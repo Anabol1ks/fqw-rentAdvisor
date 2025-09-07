@@ -38,22 +38,26 @@ func main() {
 		delayMin  = flag.Duration("delay-min", 1200*time.Millisecond, "Минимальная задержка между запросами")
 		delayMax  = flag.Duration("delay-max", 2500*time.Millisecond, "Максимальная задержка между запросами")
 		parallel  = flag.Int("parallel", 2, "Параллелизм")
+		maxItems  = flag.Int("max-items", 0, "Максимум карточек для сбора (0 = без лимита)")
+		maxEmpty  = flag.Int("max-empty-pages", 0, "Остановить после N подряд пустых страниц выдачи (0 = игнорировать)")
 	)
 	flag.Parse()
 
 	repoRaw := repo.NewRawRepository(db)
 
 	opts := yandex.Options{
-		DBRepo:       repoRaw,
-		StartURLTmpl: "https://realty.yandex.ru/{city}/kupit/kvartira/?page={page}",
-		City:         *city,
-		StartPage:    *startPage,
-		Pages:        *pages,
-		SnapshotDir:  *snaps,
-		ProxyURL:     *proxyURL,
-		DelayMin:     *delayMin,
-		DelayMax:     *delayMax,
-		Parallelism:  *parallel,
+		DBRepo:               repoRaw,
+		StartURLTmpl:         "https://realty.yandex.ru/{city}/kupit/kvartira/?page={page}",
+		City:                 *city,
+		StartPage:            *startPage,
+		Pages:                *pages,
+		SnapshotDir:          *snaps,
+		ProxyURL:             *proxyURL,
+		DelayMin:             *delayMin,
+		DelayMax:             *delayMax,
+		Parallelism:          *parallel,
+		MaxItems:             *maxItems,
+		MaxEmptyListingPages: *maxEmpty,
 	}
 
 	if err := yandex.Run(opts, log); err != nil {

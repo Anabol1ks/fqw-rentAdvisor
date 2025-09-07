@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"skripe/internal/repo"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gocolly/colly/v2"
@@ -33,6 +35,9 @@ type Options struct {
 	DelayMin     time.Duration
 	DelayMax     time.Duration
 	Parallelism  int
+	// Новые параметры управления завершением
+	MaxItems             int // 0 = без лимита; при достижении — остановка скрапинга
+	MaxEmptyListingPages int // 0 = игнорировать; >0 — остановить после N подряд страниц выдачи без ссылок на детали
 }
 
 var detailRe = regexp.MustCompile(`/offer/\d+/`)
@@ -71,13 +76,34 @@ func Run(o Options, log *zap.Logger) error {
 		}
 	}
 
-	// 1) на страницах выдачи собираем ссылки на детали
+	// Счётчики/состояние
+	var upserted int64 // успешно сохраненные карточки
+	var shouldStop int64
+	var mu sync.Mutex
+	listingLinkCount := make(map[string]int) // URL страницы выдачи -> кол-во детальных ссылок
+	currentPage := o.StartPage
+	pagesVisited := 0
+	emptyStreak := 0
+
+	// 1) на страницах выдачи собираем ссылки на детали и считаем их
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		href := e.Attr("href")
 		if href == "" || !detailRe.MatchString(href) {
 			return
 		}
+		// учитываем только если это страница выдачи (не детальная)
+		if detailRe.MatchString(e.Request.URL.Path) {
+			return
+		}
+		// если уже решили останавливаться — не планируем деталей
+		if atomic.LoadInt64(&shouldStop) == 1 {
+			return
+		}
 		link := e.Request.AbsoluteURL(href)
+		// инкремент счётчика для текущей страницы выдачи
+		mu.Lock()
+		listingLinkCount[e.Request.URL.String()]++
+		mu.Unlock()
 		_ = c.Visit(link)
 	})
 
@@ -192,6 +218,53 @@ func Run(o Options, log *zap.Logger) error {
 		} else {
 			msg := fmt.Sprintf("upserted %s %s", item.Source, item.ExternalID)
 			log.Info(msg)
+			// инкремент и проверка лимита
+			if o.MaxItems > 0 {
+				if atomic.AddInt64(&upserted, 1) >= int64(o.MaxItems) {
+					log.Info("max items reached, will stop scheduling new requests", zap.Int("max_items", o.MaxItems))
+					atomic.StoreInt64(&shouldStop, 1)
+				}
+			}
+		}
+	})
+
+	// 3) по окончании обработки любой страницы решаем, продолжать ли пагинацию выдачи
+	c.OnScraped(func(r *colly.Response) {
+		// интересуют только страницы выдачи (не деталки)
+		if detailRe.MatchString(r.Request.URL.Path) {
+			return
+		}
+		// обновим streak пустых страниц
+		mu.Lock()
+		cnt := listingLinkCount[r.Request.URL.String()]
+		mu.Unlock()
+		if cnt == 0 {
+			emptyStreak++
+		} else {
+			emptyStreak = 0
+		}
+		pagesVisited++
+		// условия остановки пагинации
+		if o.MaxEmptyListingPages > 0 && emptyStreak >= o.MaxEmptyListingPages {
+			log.Info("stop on empty listing pages (will not schedule more)", zap.Int("streak", emptyStreak))
+			atomic.StoreInt64(&shouldStop, 1)
+			return
+		}
+		if atomic.LoadInt64(&shouldStop) == 1 {
+			return
+		}
+		if o.Pages > 0 && pagesVisited >= max(1, o.Pages) {
+			return // достигли план по страницам
+		}
+		// запустить следующую страницу
+		next := currentPage + 1
+		if next >= o.StartPage+max(1, o.Pages) {
+			return
+		}
+		currentPage = next
+		u := o.buildPageURL(currentPage, log)
+		if err := c.Visit(u); err != nil {
+			log.Warn("visit list err: ", zap.Error(err))
 		}
 	})
 
@@ -205,12 +278,10 @@ func Run(o Options, log *zap.Logger) error {
 		log.Info(msg)
 	})
 
-	// запускам обход
-	for p := o.StartPage; p < o.StartPage+max(1, o.Pages); p++ {
-		u := o.buildPageURL(p, log)
-		if err := c.Visit(u); err != nil {
-			log.Warn("visit list err: ", zap.Error(err))
-		}
+	// запускам обход: стартуем с первой страницы, дальше листаем в OnScraped
+	u := o.buildPageURL(currentPage, log)
+	if err := c.Visit(u); err != nil {
+		log.Warn("visit list err: ", zap.Error(err))
 	}
 
 	c.Wait()
