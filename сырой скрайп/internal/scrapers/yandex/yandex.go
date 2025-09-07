@@ -185,6 +185,7 @@ func Run(o Options, log *zap.Logger) error {
 		}
 		metro := extractMetroFromDoc(doc)
 		rAreaLiving, rAreaKitchen := extractAreasFromDoc(doc)
+		yearBuilt, houseMaterial := extractHouseInfoFromDoc(doc)
 
 		item := repo.RawItem{
 			Source:        "yandex",
@@ -203,6 +204,8 @@ func Run(o Options, log *zap.Logger) error {
 			AreaKitchen:   rAreaKitchen,
 			Floor:         rFloor,
 			FloorsTotal:   rFloors,
+			YearBuilt:     yearBuilt,
+			HouseMaterial: houseMaterial,
 			Metro:         metro,
 			PricePeriod:   detectPricePeriod(o.DealType, jld, doc),
 			Payload: map[string]any{

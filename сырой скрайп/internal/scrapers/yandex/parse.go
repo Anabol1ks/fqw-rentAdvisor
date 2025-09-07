@@ -532,3 +532,116 @@ func extractRoomsFromDoc(doc *goquery.Document) *int {
 	}
 	return nil
 }
+
+// extractHouseInfoFromDoc ищет в блоке «О доме» год постройки/сдачи и материал стен.
+// Возвращает (yearBuilt, materialNormalized).
+func extractHouseInfoFromDoc(doc *goquery.Document) (yearBuilt *int, material string) {
+	// 1) Точный блок: OfferCard__buildingFeatures / OfferCardBuildingFeatures__feature
+	sel := doc.Find(`[class*="OfferCard__buildingFeatures"], [class*="OfferCardBuildingFeatures__featuresContainer"]`)
+	if sel.Length() > 0 {
+		sel.Find(`[class*="OfferCardFeature__text"], a[class*="OfferCardBuildingFeatures__feature"]`).Each(func(i int, s *goquery.Selection) {
+			t := strings.TrimSpace(s.Text())
+			if t == "" {
+				return
+			}
+			low := strings.ToLower(t)
+			// 1.1) Год: ловим 4 цифры в разумном диапазоне, если рядом слова указывают на дом/год/сдан
+			if yearBuilt == nil {
+				if strings.Contains(low, "дом") || strings.Contains(low, "год") || strings.Contains(low, "сдан") || strings.Contains(low, "постро") {
+					if y := findYearInText(low); y != nil {
+						yearBuilt = y
+					}
+				}
+			}
+			// 1.2) Материал: ищем по ключевым словам
+			if material == "" {
+				if m := normalizeHouseMaterial(low); m != "" {
+					material = m
+				}
+			}
+		})
+	}
+
+	// 2) Фолбэк по всему тексту страницы: иногда метки могут быть вне блока
+	if yearBuilt == nil || material == "" {
+		full := strings.ToLower(doc.Text())
+		if yearBuilt == nil {
+			if y := findYearInText(full); y != nil {
+				yearBuilt = y
+			}
+		}
+		if material == "" {
+			if m := normalizeHouseMaterial(full); m != "" {
+				material = m
+			}
+		}
+	}
+	return
+}
+
+// findYearInText ищет год как 4 цифры (1900..2100)
+func findYearInText(s string) *int {
+	re := regexp.MustCompile(`\b(1\d{3}|20\d{2}|2100)\b`)
+	if m := re.FindStringSubmatch(s); len(m) == 2 {
+		if v, err := strconv.Atoi(m[1]); err == nil {
+			if v >= 1900 && v <= 2100 {
+				return &v
+			}
+		}
+	}
+	return nil
+}
+
+// normalizeHouseMaterial нормализует материал к ограниченному справочнику.
+// Возвращает пустую строку, если ничего не похоже.
+func normalizeHouseMaterial(s string) string {
+	// упрощаем: удалим повторяющиеся пробелы, заменим неразрывный пробел
+	s = strings.ReplaceAll(s, "\u00a0", " ")
+	s = strings.ToLower(s)
+
+	// если нет ключевых слов — вероятно, не материал
+	hasAny := strings.Contains(s, "кирпич") || strings.Contains(s, "монолит") || strings.Contains(s, "панел") ||
+		strings.Contains(s, "каркас") || strings.Contains(s, "блок") || strings.Contains(s, "газобетон") ||
+		strings.Contains(s, "пенобетон") || strings.Contains(s, "дерев") || strings.Contains(s, "сталин") ||
+		strings.Contains(s, "хрущ") || strings.Contains(s, "брежнев")
+	if !hasAny {
+		return ""
+	}
+
+	// Комбинированные конструкции
+	hasKirpich := strings.Contains(s, "кирпич")
+	hasMonolit := strings.Contains(s, "монолит")
+	hasKarkas := strings.Contains(s, "каркас")
+	if hasKirpich && hasMonolit {
+		return "кирпично-монолитный"
+	}
+	if hasMonolit && hasKarkas {
+		return "монолитно-каркасный"
+	}
+
+	// Простые
+	switch {
+	case strings.Contains(s, "панел"):
+		return "панельный"
+	case hasMonolit:
+		return "монолитный"
+	case hasKirpich:
+		return "кирпичный"
+	case strings.Contains(s, "газобетон"):
+		return "газобетон"
+	case strings.Contains(s, "пенобетон"):
+		return "пенобетон"
+	case strings.Contains(s, "блок"):
+		return "блочный"
+	case strings.Contains(s, "дерев"):
+		return "деревянный"
+	// Типовые эпохи — можно вернуть как material, если нужно учитывать как тип
+	case strings.Contains(s, "сталин"):
+		return "сталинский"
+	case strings.Contains(s, "хрущ"):
+		return "хрущёвка"
+	case strings.Contains(s, "брежнев"):
+		return "брежневка"
+	}
+	return ""
+}
