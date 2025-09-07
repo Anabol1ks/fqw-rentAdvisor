@@ -9,14 +9,16 @@ import (
 // ---------- listing_raw: сырые записи с площадок ----------
 type ListingRaw struct {
 	ID               uint64 `gorm:"primaryKey"`
-	Source           string `gorm:"not null;index;uniqueIndex:uidx_source_external_id"`
-	ExternalID       string `gorm:"not null;uniqueIndex:uidx_source_external_id"`
+	Source           string `gorm:"not null;index;uniqueIndex:uidx_source_deal_external_id"`
+	DealType         string `gorm:"not null;index;uniqueIndex:uidx_source_deal_external_id"` // sale/rent_long/rent_daily
+	ExternalID       string `gorm:"not null;uniqueIndex:uidx_source_deal_external_id"`
 	URL              string
-	Payload          datatypes.JSON `gorm:"type:jsonb;not null"` // сохраняем то, что спарсили
+	Payload          datatypes.JSON `gorm:"type:jsonb;not null"`
 	Title            string
 	Description      string
 	PriceValue       *float64 `gorm:"type:numeric(14,2)"`
 	PriceCurrency    string
+	PricePeriod      *string // "month" | "day" | nil
 	Rooms            *int
 	AreaTotal        *float64
 	AreaLiving       *float64
@@ -42,12 +44,14 @@ func (ListingRaw) TableName() string { return "listing_raw" }
 // ---------- listing: нормализованная карточка ----------
 type Listing struct {
 	ID               uint64 `gorm:"primaryKey"`
-	Source           string `gorm:"not null;index;uniqueIndex:uidx_listing_source_external_id"`
-	ExternalID       string `gorm:"not null;uniqueIndex:uidx_listing_source_external_id"`
+	Source           string `gorm:"not null;index;uniqueIndex:uidx_listing_source_deal_external_id"`
+	DealType         string `gorm:"not null;index;uniqueIndex:uidx_listing_source_deal_external_id"`
+	ExternalID       string `gorm:"not null;uniqueIndex:uidx_listing_source_deal_external_id"`
 	URL              string
 	Title            string
 	Description      string
 	PriceRUB         *float64 `gorm:"type:numeric(14,2)"`
+	PricePeriod      *string  // "month" | "day" | nil
 	Rooms            *int
 	AreaTotal        *float64
 	AreaLiving       *float64
@@ -65,12 +69,10 @@ type Listing struct {
 	IsActive         bool `gorm:"default:true"`
 	FirstSeen        *time.Time
 	LastSeen         *time.Time
-	// для PostGIS-триггера:
-	Lat *float64
-	Lon *float64
-	// колонку geom (geography) создаём сырым SQL; в Go-коде можно не маппить
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Lat              *float64
+	Lon              *float64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 func (Listing) TableName() string { return "listing" }

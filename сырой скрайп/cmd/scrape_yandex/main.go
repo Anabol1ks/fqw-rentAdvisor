@@ -40,6 +40,7 @@ func main() {
 		parallel  = flag.Int("parallel", 2, "Параллелизм")
 		maxItems  = flag.Int("max-items", 0, "Максимум карточек для сбора (0 = без лимита)")
 		maxEmpty  = flag.Int("max-empty-pages", 0, "Остановить после N подряд пустых страниц выдачи (0 = игнорировать)")
+		deal      = flag.String("deal", "sale", "sale|rent")
 	)
 	flag.Parse()
 
@@ -47,7 +48,7 @@ func main() {
 
 	opts := yandex.Options{
 		DBRepo:               repoRaw,
-		StartURLTmpl:         "https://realty.yandex.ru/{city}/kupit/kvartira/?page={page}",
+		StartURLTmpl:         getStartURLTmpl(*deal),
 		City:                 *city,
 		StartPage:            *startPage,
 		Pages:                *pages,
@@ -58,6 +59,7 @@ func main() {
 		Parallelism:          *parallel,
 		MaxItems:             *maxItems,
 		MaxEmptyListingPages: *maxEmpty,
+		DealType:             mapDealType(*deal),
 	}
 
 	if err := yandex.Run(opts, log); err != nil {
@@ -67,4 +69,26 @@ func main() {
 	// storage.Migrate(db, log)
 	_ = db.WithContext(context.Background()).Exec("SELECT 1").Error
 	storage.CloseDB(db, log)
+}
+
+func getStartURLTmpl(deal string) string {
+	switch deal {
+	case "sale":
+		return "https://realty.yandex.ru/{city}/kupit/kvartira/?page={page}"
+	case "rent":
+		return "https://realty.yandex.ru/{city}/snyat/kvartira/?page={page}"
+	default:
+		return "https://realty.yandex.ru/{city}/kupit/kvartira/?page={page}"
+	}
+}
+
+func mapDealType(flag string) string {
+	switch flag {
+	case "sale":
+		return "sale"
+	case "rent":
+		return "rent_long"
+	default:
+		return "sale"
+	}
 }

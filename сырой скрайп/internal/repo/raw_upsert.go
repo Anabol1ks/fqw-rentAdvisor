@@ -12,6 +12,7 @@ import (
 
 type RawItem struct {
 	Source        string
+	DealType      string
 	ExternalID    string
 	URL           string
 	Title         string
@@ -32,8 +33,8 @@ type RawItem struct {
 	Lon           *float64
 	District      string
 	Metro         string
-	// snapshotPath кладём в payload как поле "snapshot_path"
-	Payload map[string]any
+	PricePeriod   *string
+	Payload       map[string]any
 }
 
 type RawRepository struct{ DB *gorm.DB }
@@ -55,12 +56,14 @@ func (r *RawRepository) UpsertListingRaw(ctx context.Context, it RawItem) error 
 
 	rec := model.ListingRaw{
 		Source:        it.Source,
+		DealType:      it.DealType,
 		ExternalID:    it.ExternalID,
 		URL:           it.URL,
 		Title:         it.Title,
 		Description:   it.Description,
 		PriceValue:    it.PriceValue,
 		PriceCurrency: it.PriceCurrency,
+		PricePeriod:   it.PricePeriod,
 		Rooms:         it.Rooms,
 		AreaTotal:     it.AreaTotal,
 		AreaLiving:    it.AreaLiving,
@@ -81,9 +84,14 @@ func (r *RawRepository) UpsertListingRaw(ctx context.Context, it RawItem) error 
 
 	return r.DB.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "source"}, {Name: "external_id"}},
+			Columns: []clause.Column{
+				{Name: "source"},
+				{Name: "deal_type"},
+				{Name: "external_id"},
+			},
 			DoUpdates: clause.AssignmentColumns([]string{
-				"url", "title", "description", "price_value", "price_currency",
+				"deal_type", "url", "title", "description", "price_value", "price_currency",
+				"price_period",
 				"rooms", "area_total", "area_living", "area_kitchen",
 				"floor", "floors_total", "year_built", "house_material", "condition",
 				"address_text", "lat", "lon", "district", "metro", "payload", "collected_at",

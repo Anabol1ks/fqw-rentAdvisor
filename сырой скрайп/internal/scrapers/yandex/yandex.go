@@ -36,8 +36,9 @@ type Options struct {
 	DelayMax     time.Duration
 	Parallelism  int
 	// Новые параметры управления завершением
-	MaxItems             int // 0 = без лимита; при достижении — остановка скрапинга
-	MaxEmptyListingPages int // 0 = игнорировать; >0 — остановить после N подряд страниц выдачи без ссылок на детали
+	MaxItems             int    // 0 = без лимита; при достижении — остановка скрапинга
+	MaxEmptyListingPages int    // 0 = игнорировать; >0 — остановить после N подряд страниц выдачи без ссылок на детали
+	DealType             string // "sale" | "rent_long" | "rent_daily"
 }
 
 var detailRe = regexp.MustCompile(`/offer/\d+/`)
@@ -198,6 +199,7 @@ func Run(o Options, log *zap.Logger) error {
 
 		item := repo.RawItem{
 			Source:        "yandex",
+			DealType:      o.DealType,
 			ExternalID:    externalID,
 			URL:           pageURL,
 			Title:         strings.TrimSpace(jld.Name),
@@ -213,6 +215,7 @@ func Run(o Options, log *zap.Logger) error {
 			Floor:         rFloor,
 			FloorsTotal:   rFloors,
 			Metro:         metro,
+			PricePeriod:   detectPricePeriod(o.DealType, jld, doc),
 			Payload: map[string]any{
 				"snapshot_path": file,
 				"jsonld_raw":    jld,
@@ -357,4 +360,21 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func detectPricePeriod(dealType string, jld JSONLD, doc *goquery.Document) *string {
+	if dealType == "sale" {
+		return nil
+	}
+	// Поиск по описанию, заголовку, DOM
+	text := strings.ToLower(jld.Description + " " + jld.Name + " " + doc.Text())
+	if strings.Contains(text, "в месяц") || strings.Contains(text, "месяц") {
+		s := "month"
+		return &s
+	}
+	if strings.Contains(text, "сутки") || strings.Contains(text, "за сутки") {
+		s := "day"
+		return &s
+	}
+	return nil
 }
