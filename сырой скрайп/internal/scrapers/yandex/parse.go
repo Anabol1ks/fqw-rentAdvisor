@@ -267,14 +267,57 @@ func extractFactsFromText(title, desc string) (rooms *int, areaTotal *float64, f
 	text := strings.ToLower(title + "\n" + desc)
 
 	// rooms
-	// примеры: "1-комнатную", "2-комнатная", "3 комн"
-	if m := regexp.MustCompile(`(?m)(\d+)\s*[- ]?комнат`).FindStringSubmatch(text); len(m) == 2 {
-		if v, err := strconv.Atoi(m[1]); err == nil {
-			rooms = &v
+	// примеры: "1-комнатную", "2-комнатная", "3 комн", "4-к. кв.", "5-к квартира", "4-х комнатная"
+	// поддержим разные дефисы: - – — ‑
+	hy := `[-–—‑]`
+	roomRes := []string{
+		// 3-комнатную / 3 комнатная
+		`(?m)\b(\d+)\s*` + hy + `?\s*комнат\w*`,
+		// 4-х комнатная / 4x комнатная
+		`(?m)\b(\d+)\s*` + hy + `?\s*[xх]\s*комнат\w*`,
+		// 4 комн., 4-комн
+		`(?m)\b(\d+)\s*(?:` + hy + `?\s*)?комн\.?`,
+		// 4-к. кв., 4-к квартира
+		`(?m)\b(\d+)\s*` + hy + `?\s*к(?:\.)?\s*(?:кв|квар)`,
+	}
+	for _, pat := range roomRes {
+		if m := regexp.MustCompile(pat).FindStringSubmatch(text); len(m) == 2 {
+			if v, err := strconv.Atoi(m[1]); err == nil {
+				rooms = &v
+				break
+			}
 		}
-	} else if m := regexp.MustCompile(`(?m)(\d+)\s*[- ]?комн`).FindStringSubmatch(text); len(m) == 2 {
-		if v, err := strconv.Atoi(m[1]); err == nil {
-			rooms = &v
+	}
+	// бонус: если указано "студия" и комнаты не распознаны — считаем 0
+	if rooms == nil {
+		if regexp.MustCompile(`(?m)\bстудия\b`).FindStringIndex(text) != nil {
+			z := 0
+			rooms = &z
+		}
+	}
+	// словесные формы (двухкомнатная, трехкомнатная, четырехкомнатная, пятикомнатная, шестикомнатная)
+	if rooms == nil {
+		wordMap := map[string]int{
+			`однокомнат`:    1,
+			`двухкомнат`:    2,
+			`двухкомн`:      2,
+			`трехкомнат`:    3,
+			`трёхкомнат`:    3,
+			`трехкомн`:      3,
+			`трёхкомн`:      3,
+			`четырехкомнат`: 4,
+			`четырёхкомнат`: 4,
+			`четырехкомн`:   4,
+			`четырёхкомн`:   4,
+			`пятикомнат`:    5,
+			`шестикомнат`:   6,
+		}
+		for k, v := range wordMap {
+			if strings.Contains(text, k) {
+				vv := v
+				rooms = &vv
+				break
+			}
 		}
 	}
 
@@ -325,18 +368,167 @@ func extractMetroFromDoc(doc *goquery.Document) string {
 
 // extractAreasFromDoc ищет площади по текстовым лейблам: "жилая", "жилая площадь", "кухня", "площадь кухни"
 func extractAreasFromDoc(doc *goquery.Document) (areaLiving *float64, areaKitchen *float64) {
-	text := strings.ToLower(doc.Text())
-	// Жилая площадь
-	if m := regexp.MustCompile(`(?m)жилая(?:\s+площадь)?\s*[:–\-]?\s*(\d+(?:[\.,]\d+)?)\s*м²`).FindStringSubmatch(text); len(m) == 2 {
-		if f := parseFloat(m[1]); f != nil {
-			areaLiving = f
+	// 1) Основной путь: карточные хайлайты с лейблами и значениями, где value идёт ПЕРЕД label
+	// Пример: <div class="OfferCardHighlight__value...">10,5 м²</div><div class="OfferCardHighlight__label...">жилая</div>
+	doc.Find(`[class^=OfferCardHighlight__container]`).Each(func(i int, s *goquery.Selection) {
+		if areaLiving != nil && areaKitchen != nil {
+			return
 		}
+		label := strings.ToLower(strings.TrimSpace(s.Find(`[class^=OfferCardHighlight__label]`).First().Text()))
+		value := strings.TrimSpace(s.Find(`[class^=OfferCardHighlight__value]`).First().Text())
+		if label == "" || value == "" {
+			return
+		}
+		// нормализуем значение и откусим число
+		v := value
+		v = strings.ReplaceAll(v, "\u00a0", " ")
+		v = strings.ReplaceAll(v, " ", "")
+		v = strings.ReplaceAll(v, ",", ".")
+		// оставим только число с точкой
+		numRe := regexp.MustCompile(`(\d+(?:\.\d+)?)`)
+		if m := numRe.FindStringSubmatch(v); len(m) == 2 {
+			if f, err := strconv.ParseFloat(m[1], 64); err == nil {
+				if strings.Contains(label, "жила") && areaLiving == nil { // жилая
+					areaLiving = &f
+				} else if strings.Contains(label, "кухн") && areaKitchen == nil { // кухня
+					areaKitchen = &f
+				}
+			}
+		}
+	})
+
+	// 1.1) Доп. путь: ищем любые элементы с классом-лейблом и ближайший value как сосед до/после
+	if areaLiving == nil || areaKitchen == nil {
+		doc.Find(`[class*="__label"]`).Each(func(i int, s *goquery.Selection) {
+			if areaLiving != nil && areaKitchen != nil {
+				return
+			}
+			label := strings.ToLower(strings.TrimSpace(s.Text()))
+			if label == "" {
+				return
+			}
+			var valSel *goquery.Selection
+			// сначала предыдущие с value
+			prev := s.PrevAll().Filter(`[class*="__value"]`).First()
+			if prev.Length() > 0 {
+				valSel = prev
+			} else {
+				next := s.NextAll().Filter(`[class*="__value"]`).First()
+				if next.Length() > 0 {
+					valSel = next
+				}
+			}
+			if valSel == nil || valSel.Length() == 0 {
+				return
+			}
+			v := strings.TrimSpace(valSel.Text())
+			if v == "" {
+				return
+			}
+			vv := strings.ReplaceAll(v, "\u00a0", " ")
+			vv = strings.ReplaceAll(vv, " ", "")
+			vv = strings.ReplaceAll(vv, ",", ".")
+			numRe := regexp.MustCompile(`(\d+(?:\.\d+)?)`)
+			if m := numRe.FindStringSubmatch(vv); len(m) == 2 {
+				if f, err := strconv.ParseFloat(m[1], 64); err == nil {
+					if strings.Contains(label, "жила") && areaLiving == nil {
+						areaLiving = &f
+					} else if strings.Contains(label, "кухн") && areaKitchen == nil {
+						areaKitchen = &f
+					}
+				}
+			}
+		})
 	}
-	// Площадь кухни
-	if m := regexp.MustCompile(`(?m)(?:кухн(?:я|и)|площадь\s+кухни)\s*[:–\-]?\s*(\d+(?:[\.,]\d+)?)\s*м²`).FindStringSubmatch(text); len(m) == 2 {
-		if f := parseFloat(m[1]); f != nil {
-			areaKitchen = f
+
+	// 2) Фолбэк по общему тексту, если не нашли в карточках
+	if areaLiving == nil || areaKitchen == nil {
+		text := strings.ToLower(doc.Text())
+		if areaLiving == nil {
+			if m := regexp.MustCompile(`(?m)жилая(?:\s+площадь)?\s*[:–\-]?\s*(\d+(?:[\.,]\d+)?)\s*м²`).FindStringSubmatch(text); len(m) == 2 {
+				if f := parseFloat(m[1]); f != nil {
+					areaLiving = f
+				}
+			}
+		}
+		if areaKitchen == nil {
+			if m := regexp.MustCompile(`(?m)(?:кухн(?:я|и)|площадь\s+кухни)\s*[:–\-]?\s*(\d+(?:[\.,]\d+)?)\s*м²`).FindStringSubmatch(text); len(m) == 2 {
+				if f := parseFloat(m[1]); f != nil {
+					areaKitchen = f
+				}
+			}
 		}
 	}
 	return
+}
+
+// extractRoomsFromDoc — фолбэк: ищем кол-во комнат по всему DOM
+// Покрываем варианты:
+//   - 3-комнатная / 3 комнатная / 3 комн. / 3-к. кв.
+//   - обратный порядок: "комнат: 3", "комн. 3", "комнаты 3"
+//   - словесные формы: двухкомнатная/трёхкомнатная/четырёхкомнатная/пятикомнатная/шестикомнатная
+//   - студия → 0
+func extractRoomsFromDoc(doc *goquery.Document) *int {
+	text := strings.ToLower(doc.Text())
+	// нормализуем некоторые символы
+	text = strings.ReplaceAll(text, "\u00a0", " ")
+
+	hy := "[-–—‑]"
+	// 1) Число перед словом
+	roomForward := []string{
+		`(?m)(\d+)\s*` + hy + `?\s*комнат\w*`,
+		`(?m)(\d+)\s*` + hy + `?\s*[xх]\s*комнат\w*`,
+		`(?m)(\d+)\s*(?:` + hy + `?\s*)?комн\.?`,
+		`(?m)(\d+)\s*` + hy + `?\s*к(?:\.)?\s*(?:кв|квар)`,
+	}
+	for _, pat := range roomForward {
+		if m := regexp.MustCompile(pat).FindStringSubmatch(text); len(m) == 2 {
+			if v, err := strconv.Atoi(m[1]); err == nil {
+				vv := v
+				return &vv
+			}
+		}
+	}
+	// 2) Слово перед числом: "комнат: 3", "комн. 3", "комнаты 3"
+	roomReverse := []string{
+		`(?m)комнат\w*\s*[:–-]?\s*(\d+)`,
+		`(?m)комн\.?\s*[:–-]?\s*(\d+)`,
+		`(?m)комнаты\s*[:–-]?\s*(\d+)`,
+	}
+	for _, pat := range roomReverse {
+		if m := regexp.MustCompile(pat).FindStringSubmatch(text); len(m) == 2 {
+			if v, err := strconv.Atoi(m[1]); err == nil {
+				vv := v
+				return &vv
+			}
+		}
+	}
+	// 3) Словесные формы
+	wordMap := map[string]int{
+		`однокомнат`:    1,
+		`двухкомнат`:    2,
+		`двухкомн`:      2,
+		`трехкомнат`:    3,
+		`трёхкомнат`:    3,
+		`трехкомн`:      3,
+		`трёхкомн`:      3,
+		`четырехкомнат`: 4,
+		`четырёхкомнат`: 4,
+		`четырехкомн`:   4,
+		`четырёхкомн`:   4,
+		`пятикомнат`:    5,
+		`шестикомнат`:   6,
+	}
+	for k, v := range wordMap {
+		if strings.Contains(text, k) {
+			vv := v
+			return &vv
+		}
+	}
+	// 4) Студия
+	if regexp.MustCompile(`(?m)\bстудия\b`).FindStringIndex(text) != nil {
+		z := 0
+		return &z
+	}
+	return nil
 }

@@ -151,6 +151,11 @@ func Run(o Options, log *zap.Logger) error {
 		addrText = strings.TrimSpace(strings.Trim(addrText, ", "))
 		// Факты из текста и DOM (комнаты/площадь/этаж/метро)
 		rRooms, rAreaTotal, rFloor, rFloors := extractFactsFromText(jld.Name, jld.Description)
+		if rRooms == nil {
+			if rr := extractRoomsFromDoc(doc); rr != nil {
+				rRooms = rr
+			}
+		}
 		metro := extractMetroFromDoc(doc)
 		rAreaLiving, rAreaKitchen := extractAreasFromDoc(doc)
 
