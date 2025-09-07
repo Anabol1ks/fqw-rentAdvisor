@@ -149,6 +149,11 @@ func Run(o Options, log *zap.Logger) error {
 
 		// Финальная зачистка адреса: убрать висячие запятые и двойные пробелы
 		addrText = strings.TrimSpace(strings.Trim(addrText, ", "))
+		// Факты из текста и DOM (комнаты/площадь/этаж/метро)
+		rRooms, rAreaTotal, rFloor, rFloors := extractFactsFromText(jld.Name, jld.Description)
+		metro := extractMetroFromDoc(doc)
+		rAreaLiving, rAreaKitchen := extractAreasFromDoc(doc)
+
 		item := repo.RawItem{
 			Source:        "yandex",
 			ExternalID:    externalID,
@@ -159,6 +164,13 @@ func Run(o Options, log *zap.Logger) error {
 			PriceCurrency: normalizeCurrency(jld.Offers.PriceCur),
 			Lat:           lat,
 			Lon:           lon,
+			Rooms:         rRooms,
+			AreaTotal:     rAreaTotal,
+			AreaLiving:    rAreaLiving,
+			AreaKitchen:   rAreaKitchen,
+			Floor:         rFloor,
+			FloorsTotal:   rFloors,
+			Metro:         metro,
 			Payload: map[string]any{
 				"snapshot_path": file,
 				"jsonld_raw":    jld,
