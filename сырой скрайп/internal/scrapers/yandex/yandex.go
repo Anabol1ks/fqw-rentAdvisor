@@ -49,6 +49,7 @@ func (o Options) buildPageURL(page int, log *zap.Logger) string {
 }
 
 func Run(o Options, log *zap.Logger) error {
+	startTS := time.Now()
 	if o.SnapshotDir == "" {
 		o.SnapshotDir = "snapshots/yandex"
 	}
@@ -59,6 +60,8 @@ func Run(o Options, log *zap.Logger) error {
 		colly.Async(true),
 		colly.MaxDepth(2),
 	)
+	// Жёсткий таймаут на HTTP-запросы, чтобы аборты/зависшие коннекты быстро завершались
+	c.SetRequestTimeout(clampDuration(15*time.Second, 5*time.Second, 60*time.Second))
 	extensions.RandomUserAgent(c)
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
@@ -79,6 +82,8 @@ func Run(o Options, log *zap.Logger) error {
 	// Счётчики/состояние
 	var upserted int64 // успешно сохраненные карточки
 	var shouldStop int64
+	var stopReason atomic.Value // string: "max_items" | "empty_listing_pages" | "pages_limit" | "manual"
+	var inFlight int64          // активные HTTP-запросы (для graceful shutdown наблюдения)
 	var mu sync.Mutex
 	listingLinkCount := make(map[string]int) // URL страницы выдачи -> кол-во детальных ссылок
 	currentPage := o.StartPage
@@ -109,6 +114,12 @@ func Run(o Options, log *zap.Logger) error {
 
 	// 2) обработчик карточки
 	c.OnResponse(func(r *colly.Response) {
+		// уменьшаем in-flight при любом ответе
+		defer atomic.AddInt64(&inFlight, -1)
+		// если достигли лимита — не тратим время на парсинг/запись
+		if o.MaxItems > 0 && atomic.LoadInt64(&upserted) >= int64(o.MaxItems) {
+			return
+		}
 		if !strings.Contains(r.Headers.Get("Content-Type"), "text/html") {
 			return
 		}
@@ -221,8 +232,9 @@ func Run(o Options, log *zap.Logger) error {
 			// инкремент и проверка лимита
 			if o.MaxItems > 0 {
 				if atomic.AddInt64(&upserted, 1) >= int64(o.MaxItems) {
-					log.Info("max items reached, will stop scheduling new requests", zap.Int("max_items", o.MaxItems))
+					log.Info("max items reached, initiating graceful stop (no new requests)", zap.Int("max_items", o.MaxItems))
 					atomic.StoreInt64(&shouldStop, 1)
+					stopReason.Store("max_items")
 				}
 			}
 		}
@@ -248,12 +260,14 @@ func Run(o Options, log *zap.Logger) error {
 		if o.MaxEmptyListingPages > 0 && emptyStreak >= o.MaxEmptyListingPages {
 			log.Info("stop on empty listing pages (will not schedule more)", zap.Int("streak", emptyStreak))
 			atomic.StoreInt64(&shouldStop, 1)
+			stopReason.Store("empty_listing_pages")
 			return
 		}
 		if atomic.LoadInt64(&shouldStop) == 1 {
 			return
 		}
 		if o.Pages > 0 && pagesVisited >= max(1, o.Pages) {
+			stopReason.Store("pages_limit")
 			return // достигли план по страницам
 		}
 		// запустить следующую страницу
@@ -269,13 +283,32 @@ func Run(o Options, log *zap.Logger) error {
 	})
 
 	c.OnRequest(func(r *colly.Request) {
+		// если достигнут лимит — отменяем дальнейшие запросы
+		if o.MaxItems > 0 && atomic.LoadInt64(&upserted) >= int64(o.MaxItems) {
+			r.Abort()
+			return
+		}
+		if atomic.LoadInt64(&shouldStop) == 1 {
+			r.Abort()
+			return
+		}
+		// учтём активный запрос только если он не был отменён
+		atomic.AddInt64(&inFlight, 1)
 		// базовые заголовки
 		r.Headers.Set("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8")
 	})
 
 	c.OnError(func(r *colly.Response, err error) {
-		msg := fmt.Sprintf("HTTP %d %s: %v", r.StatusCode, r.Request.URL, err)
-		log.Info(msg)
+		// уменьшаем in-flight при ошибочном ответе, если был инкремент
+		if atomic.LoadInt64(&inFlight) > 0 {
+			atomic.AddInt64(&inFlight, -1)
+		}
+		if r != nil && r.Request != nil {
+			msg := fmt.Sprintf("HTTP %d %s: %v", r.StatusCode, r.Request.URL, err)
+			log.Info(msg)
+		} else {
+			log.Info("request error", zap.Error(err))
+		}
 	})
 
 	// запускам обход: стартуем с первой страницы, дальше листаем в OnScraped
@@ -285,6 +318,16 @@ func Run(o Options, log *zap.Logger) error {
 	}
 
 	c.Wait()
+	// Финальный сводный лог
+	reason, _ := stopReason.Load().(string)
+	log.Info("scrape finished",
+		zap.Int64("upserted", atomic.LoadInt64(&upserted)),
+		zap.Int("pages_visited", pagesVisited),
+		zap.Int("empty_streak_end", emptyStreak),
+		zap.Int64("in_flight_end", atomic.LoadInt64(&inFlight)),
+		zap.String("stop_reason", reason),
+		zap.Duration("elapsed", time.Since(startTS)),
+	)
 	return nil
 }
 
