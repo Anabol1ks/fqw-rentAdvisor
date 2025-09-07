@@ -23,8 +23,6 @@ func main() {
 	cfg := config.Load(log)
 
 	db := storage.ConnectDB(&cfg.DB, log)
-
 	storage.Migrate(db, log)
-
 	storage.CloseDB(db, log)
 }
