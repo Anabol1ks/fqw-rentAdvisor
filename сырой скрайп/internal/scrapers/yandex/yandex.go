@@ -3,12 +3,8 @@ package yandex
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"skripe/internal/repo"
 	"strings"
@@ -51,10 +47,7 @@ func (o Options) buildPageURL(page int, log *zap.Logger) string {
 
 func Run(o Options, log *zap.Logger) error {
 	startTS := time.Now()
-	if o.SnapshotDir == "" {
-		o.SnapshotDir = "snapshots/yandex"
-	}
-	_ = os.MkdirAll(o.SnapshotDir, 0o755)
+	// Снапшоты HTML более не сохраняем
 
 	c := colly.NewCollector(
 		colly.AllowedDomains("realty.yandex.ru", "www.realty.yandex.ru", "yandex.ru"),
@@ -128,11 +121,7 @@ func Run(o Options, log *zap.Logger) error {
 		if !detailRe.MatchString(r.Request.URL.Path) {
 			return
 		}
-		// снапшот
-		file := snapshotPath(o.SnapshotDir, r.Request.URL.String(), r.Body)
-		if err := os.WriteFile(file, r.Body, 0o644); err != nil {
-			log.Warn("save snapshot err: ", zap.Error(err))
-		}
+		// снапшот HTML не сохраняем
 
 		// парсим DOM
 		doc, err := goquery.NewDocumentFromReader(bytes.NewReader(r.Body))
@@ -217,8 +206,7 @@ func Run(o Options, log *zap.Logger) error {
 			Metro:         metro,
 			PricePeriod:   detectPricePeriod(o.DealType, jld, doc),
 			Payload: map[string]any{
-				"snapshot_path": file,
-				"jsonld_raw":    jld,
+				"jsonld_raw": jld,
 			},
 		}
 		if jld.Offers.Price != "" {
@@ -332,18 +320,6 @@ func Run(o Options, log *zap.Logger) error {
 		zap.Duration("elapsed", time.Since(startTS)),
 	)
 	return nil
-}
-
-func snapshotPath(dir, pageURL string, body []byte) string {
-	h := sha1.Sum(append([]byte(pageURL), body...))
-	return filepath.Join(dir, fmt.Sprintf("%s_%s.html", safeName(pageURL), hex.EncodeToString(h[:8])))
-}
-
-func safeName(u string) string {
-	u = strings.TrimPrefix(u, "https://")
-	u = strings.TrimPrefix(u, "http://")
-	u = strings.ReplaceAll(u, "/", "_")
-	return u
 }
 
 func clampDuration(v, min, max time.Duration) time.Duration {

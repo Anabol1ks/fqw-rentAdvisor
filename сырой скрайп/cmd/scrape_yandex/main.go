@@ -33,7 +33,6 @@ func main() {
 		city      = flag.String("city", "moskva", "Город в URL (пример: moskva, peterburg)")
 		startPage = flag.Int("start", 1, "Стартовая страница")
 		pages     = flag.Int("pages", 1, "Сколько страниц обойти")
-		snaps     = flag.String("snapshots", "snapshots/yandex", "Каталог для HTML-снапшотов")
 		proxyURL  = flag.String("proxy", "", "HTTP/HTTPS proxy (опционально)")
 		delayMin  = flag.Duration("delay-min", 1200*time.Millisecond, "Минимальная задержка между запросами")
 		delayMax  = flag.Duration("delay-max", 2500*time.Millisecond, "Максимальная задержка между запросами")
@@ -52,7 +51,6 @@ func main() {
 		City:                 *city,
 		StartPage:            *startPage,
 		Pages:                *pages,
-		SnapshotDir:          *snaps,
 		ProxyURL:             *proxyURL,
 		DelayMin:             *delayMin,
 		DelayMax:             *delayMax,
