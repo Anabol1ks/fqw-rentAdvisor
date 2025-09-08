@@ -267,56 +267,59 @@ func extractFactsFromText(title, desc string) (rooms *int, areaTotal *float64, f
 	text := strings.ToLower(title + "\n" + desc)
 
 	// rooms
-	// примеры: "1-комнатную", "2-комнатная", "3 комн", "4-к. кв.", "5-к квартира", "4-х комнатная"
-	// поддержим разные дефисы: - – — ‑
-	hy := `[-–—‑]`
-	roomRes := []string{
-		// 3-комнатную / 3 комнатная
-		`(?m)\b(\d+)\s*` + hy + `?\s*комнат\w*`,
-		// 4-х комнатная / 4x комнатная
-		`(?m)\b(\d+)\s*` + hy + `?\s*[xх]\s*комнат\w*`,
-		// 4 комн., 4-комн
-		`(?m)\b(\d+)\s*(?:` + hy + `?\s*)?комн\.?`,
-		// 4-к. кв., 4-к квартира
-		`(?m)\b(\d+)\s*` + hy + `?\s*к(?:\.)?\s*(?:кв|квар)`,
-	}
-	for _, pat := range roomRes {
-		if m := regexp.MustCompile(pat).FindStringSubmatch(text); len(m) == 2 {
-			if v, err := strconv.Atoi(m[1]); err == nil {
-				rooms = &v
-				break
+	// Прежде всего — устойчивое определение студии в заголовке/описании (склонения и «студио»)
+	// Примеры: "квартира-студию", "квартира студия", "апартаменты-студию", "студио"
+	// Unicode-границы вместо \b, чтобы ловить: "квартира-студию", "апартаменты‑студия", и т.д.
+	studioRe := regexp.MustCompile(`(?m)(^|[^\p{L}\p{N}])студи(?:я|ю|и|ей|е|о)($|[^\p{L}\p{N}])`)
+	if studioRe.FindStringIndex(text) != nil {
+		z := 0
+		rooms = &z
+	} else {
+		// Если не студия — пробуем числовые шаблоны по кол-ву комнат
+		// примеры: "1-комнатную", "2-комнатная", "3 комн", "4-к. кв.", "5-к квартира", "4-х комнатная"
+		// поддержим разные дефисы: - – — ‑
+		hy := `[-–—‑]`
+		roomRes := []string{
+			// 3-комнатную / 3 комнатная
+			`(?m)\b(\d+)\s*` + hy + `?\s*комнат\w*`,
+			// 4-х комнатная / 4x комнатная
+			`(?m)\b(\d+)\s*` + hy + `?\s*[xх]\s*комнат\w*`,
+			// 4 комн., 4-комн
+			`(?m)\b(\d+)\s*(?:` + hy + `?\s*)?комн\.?`,
+			// 4-к. кв., 4-к квартира
+			`(?m)\b(\d+)\s*` + hy + `?\s*к(?:\.)?\s*(?:кв|квар)`,
+		}
+		for _, pat := range roomRes {
+			if m := regexp.MustCompile(pat).FindStringSubmatch(text); len(m) == 2 {
+				if v, err := strconv.Atoi(m[1]); err == nil {
+					rooms = &v
+					break
+				}
 			}
 		}
-	}
-	// бонус: если указано "студия" и комнаты не распознаны — считаем 0
-	if rooms == nil {
-		if regexp.MustCompile(`(?m)\bстудия\b`).FindStringIndex(text) != nil {
-			z := 0
-			rooms = &z
-		}
-	}
-	// словесные формы (двухкомнатная, трехкомнатная, четырехкомнатная, пятикомнатная, шестикомнатная)
-	if rooms == nil {
-		wordMap := map[string]int{
-			`однокомнат`:    1,
-			`двухкомнат`:    2,
-			`двухкомн`:      2,
-			`трехкомнат`:    3,
-			`трёхкомнат`:    3,
-			`трехкомн`:      3,
-			`трёхкомн`:      3,
-			`четырехкомнат`: 4,
-			`четырёхкомнат`: 4,
-			`четырехкомн`:   4,
-			`четырёхкомн`:   4,
-			`пятикомнат`:    5,
-			`шестикомнат`:   6,
-		}
-		for k, v := range wordMap {
-			if strings.Contains(text, k) {
-				vv := v
-				rooms = &vv
-				break
+		// словесные формы (двухкомнатная, трехкомнатная, четырехкомнатная, пятикомнатная, шестикомнатная)
+		if rooms == nil {
+			wordMap := map[string]int{
+				`однокомнат`:    1,
+				`двухкомнат`:    2,
+				`двухкомн`:      2,
+				`трехкомнат`:    3,
+				`трёхкомнат`:    3,
+				`трехкомн`:      3,
+				`трёхкомн`:      3,
+				`четырехкомнат`: 4,
+				`четырёхкомнат`: 4,
+				`четырехкомн`:   4,
+				`четырёхкомн`:   4,
+				`пятикомнат`:    5,
+				`шестикомнат`:   6,
+			}
+			for k, v := range wordMap {
+				if strings.Contains(text, k) {
+					vv := v
+					rooms = &vv
+					break
+				}
 			}
 		}
 	}
@@ -469,6 +472,23 @@ func extractAreasFromDoc(doc *goquery.Document) (areaLiving *float64, areaKitche
 //   - словесные формы: двухкомнатная/трёхкомнатная/четырёхкомнатная/пятикомнатная/шестикомнатная
 //   - студия → 0
 func extractRoomsFromDoc(doc *goquery.Document) *int {
+	// Приоритетно: если в заголовке страницы/мета-описании явно указана студия — сразу 0
+	studioRe := regexp.MustCompile(`(?m)(^|[^\p{L}\p{N}])студи(?:я|ю|и|ей|е|о)($|[^\p{L}\p{N}])`)
+	if t := strings.ToLower(strings.TrimSpace(doc.Find("title").Text())); t != "" && studioRe.FindStringIndex(t) != nil {
+		z := 0
+		return &z
+	}
+	if md, ok := doc.Find(`meta[name="description"]`).Attr("content"); ok {
+		if studioRe.FindStringIndex(strings.ToLower(md)) != nil {
+			z := 0
+			return &z
+		}
+	}
+	if h1 := strings.ToLower(strings.TrimSpace(doc.Find("h1").First().Text())); h1 != "" && studioRe.FindStringIndex(h1) != nil {
+		z := 0
+		return &z
+	}
+
 	text := strings.ToLower(doc.Text())
 	// нормализуем некоторые символы
 	text = strings.ReplaceAll(text, "\u00a0", " ")
