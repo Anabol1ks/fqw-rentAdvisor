@@ -31,6 +31,9 @@ type Options struct {
 	DelayMin     time.Duration
 	DelayMax     time.Duration
 	Parallelism  int
+	// Доп. маскировка
+	Cookie     string // опционально: строка Cookie из браузера для realty.yandex.ru
+	UseReferer bool   // включить автоматический Referer
 	// Новые параметры управления завершением
 	MaxItems             int    // 0 = без лимита; при достижении — остановка скрапинга
 	MaxEmptyListingPages int    // 0 = игнорировать; >0 — остановить после N подряд страниц выдачи без ссылок на детали
@@ -57,6 +60,9 @@ func Run(o Options, log *zap.Logger) error {
 	// Жёсткий таймаут на HTTP-запросы, чтобы аборты/зависшие коннекты быстро завершались
 	c.SetRequestTimeout(clampDuration(15*time.Second, 5*time.Second, 60*time.Second))
 	extensions.RandomUserAgent(c)
+	if o.UseReferer {
+		extensions.Referer(c)
+	}
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: max(1, o.Parallelism),
@@ -108,8 +114,17 @@ func Run(o Options, log *zap.Logger) error {
 
 	// 2) обработчик карточки
 	c.OnResponse(func(r *colly.Response) {
-		// уменьшаем in-flight при любом ответе
+		// уменьшаем in-flight при любом ответе (включая ранние возвраты)
 		defer atomic.AddInt64(&inFlight, -1)
+		// Обнаружение капчи: если редирект/ответ ведёт на showcaptcha — останавливаемся аккуратно
+		if strings.Contains(r.Request.URL.Host, "yandex.") && strings.Contains(r.Request.URL.Path, "showcaptcha") {
+			if atomic.LoadInt64(&shouldStop) == 0 {
+				log.Info("captcha detected, graceful stop", zap.String("url", r.Request.URL.String()))
+				atomic.StoreInt64(&shouldStop, 1)
+				stopReason.Store("captcha")
+			}
+			return
+		}
 		// если достигли лимита — не тратим время на парсинг/запись
 		if o.MaxItems > 0 && atomic.LoadInt64(&upserted) >= int64(o.MaxItems) {
 			return
@@ -244,6 +259,12 @@ func Run(o Options, log *zap.Logger) error {
 		mu.Lock()
 		cnt := listingLinkCount[r.Request.URL.String()]
 		mu.Unlock()
+		// информативный лог по странице выдачи
+		log.Info("list page scanned",
+			zap.String("url", r.Request.URL.String()),
+			zap.Int("detail_links", cnt),
+			zap.Int("pages_visited_next", pagesVisited+1),
+		)
 		if cnt == 0 {
 			emptyStreak++
 		} else {
@@ -290,6 +311,9 @@ func Run(o Options, log *zap.Logger) error {
 		atomic.AddInt64(&inFlight, 1)
 		// базовые заголовки
 		r.Headers.Set("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8")
+		if o.Cookie != "" {
+			r.Headers.Set("Cookie", o.Cookie)
+		}
 	})
 
 	c.OnError(func(r *colly.Response, err error) {

@@ -40,6 +40,8 @@ func main() {
 		maxItems  = flag.Int("max-items", 0, "Максимум карточек для сбора (0 = без лимита)")
 		maxEmpty  = flag.Int("max-empty-pages", 0, "Остановить после N подряд пустых страниц выдачи (0 = игнорировать)")
 		deal      = flag.String("deal", "sale", "sale|rent")
+		cookie    = flag.String("cookie", "", "Строка Cookie для realty.yandex.ru (опционально)")
+		useRef    = flag.Bool("use-referer", true, "Включить заголовок Referer для Colly")
 	)
 	flag.Parse()
 
@@ -55,6 +57,8 @@ func main() {
 		DelayMin:             *delayMin,
 		DelayMax:             *delayMax,
 		Parallelism:          *parallel,
+		Cookie:               *cookie,
+		UseReferer:           *useRef,
 		MaxItems:             *maxItems,
 		MaxEmptyListingPages: *maxEmpty,
 		DealType:             mapDealType(*deal),
