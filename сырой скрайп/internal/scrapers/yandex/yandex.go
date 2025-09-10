@@ -233,19 +233,22 @@ func Run(o Options, log *zap.Logger) error {
 			}
 		}
 
-		if err := o.DBRepo.UpsertListingRaw(context.Background(), item); err != nil {
-			log.Warn("upsert raw err: ", zap.Error(err))
-		} else {
-			msg := fmt.Sprintf("upserted %s %s", item.Source, item.ExternalID)
-			log.Info(msg)
-			// инкремент и проверка лимита
+		inserted, err := o.DBRepo.UpsertListingRaw(context.Background(), item)
+		if err != nil {
+			log.Warn("upsert raw err", zap.Error(err), zap.String("ext_id", item.ExternalID))
+			return
+		}
+		if inserted {
+			log.Info("inserted new", zap.String("ext_id", item.ExternalID))
 			if o.MaxItems > 0 {
 				if atomic.AddInt64(&upserted, 1) >= int64(o.MaxItems) {
-					log.Info("max items reached, initiating graceful stop (no new requests)", zap.Int("max_items", o.MaxItems))
+					log.Info("max NEW items reached, initiating graceful stop", zap.Int("max_items", o.MaxItems))
 					atomic.StoreInt64(&shouldStop, 1)
 					stopReason.Store("max_items")
 				}
 			}
+		} else {
+			log.Debug("updated existing", zap.String("ext_id", item.ExternalID))
 		}
 	})
 
