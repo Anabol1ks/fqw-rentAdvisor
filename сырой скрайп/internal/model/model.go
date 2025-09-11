@@ -33,6 +33,8 @@ type ListingRaw struct {
 	Lon              *float64
 	District         string
 	Metro            string
+	MetroStation     *string // нормализованное название станции (сырые)
+	MetroWalkMin     *int
 	ContactPhoneHash string
 	CollectedAt      time.Time `gorm:"not null;default:now()"`
 	CreatedAt        time.Time
@@ -52,6 +54,7 @@ type Listing struct {
 	Description      string
 	PriceRUB         *float64 `gorm:"type:numeric(14,2)"`
 	PricePeriod      *string  // "month" | "day" | nil
+	PricePerM2       *float64 `gorm:"column:price_per_m2;type:numeric(14,2);index:idx_listing_ppm"`
 	Rooms            *int
 	AreaTotal        *float64
 	AreaLiving       *float64
@@ -65,6 +68,8 @@ type Listing struct {
 	City             string `gorm:"index:idx_city_district,priority:1"`
 	District         string `gorm:"index:idx_city_district,priority:2"`
 	Metro            string
+	MetroStation     string
+	MetroWalkMin     *int
 	ContactPhoneHash string
 	IsActive         bool `gorm:"default:true"`
 	FirstSeen        *time.Time
