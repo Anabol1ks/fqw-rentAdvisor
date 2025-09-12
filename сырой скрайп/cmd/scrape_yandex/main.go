@@ -33,6 +33,7 @@ func main() {
 		city      = flag.String("city", "moskva", "Город в URL (пример: moskva, peterburg)")
 		startPage = flag.Int("start", 1, "Стартовая страница")
 		pages     = flag.Int("pages", 1, "Сколько страниц обойти")
+		urlOnly   = flag.String("url", "", "Тест: конкретный URL карточки (обходит только его)")
 		proxyURL  = flag.String("proxy", "", "HTTP/HTTPS proxy (опционально)")
 		delayMin  = flag.Duration("delay-min", 1200*time.Millisecond, "Минимальная задержка между запросами")
 		delayMax  = flag.Duration("delay-max", 2500*time.Millisecond, "Максимальная задержка между запросами")
@@ -53,6 +54,7 @@ func main() {
 		City:                 *city,
 		StartPage:            *startPage,
 		Pages:                *pages,
+		SingleURL:            *urlOnly,
 		ProxyURL:             *proxyURL,
 		DelayMin:             *delayMin,
 		DelayMax:             *delayMax,

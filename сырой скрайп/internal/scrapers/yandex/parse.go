@@ -361,12 +361,11 @@ func extractMetroFromDoc(doc *goquery.Document) string {
 	if raw == "" {
 		return ""
 	}
-	// Оставим начало до первой цифры/запятой — обычно это название станции
-	re := regexp.MustCompile(`^\s*([\p{L}\-\s]+?)\s*(?:[•·\-,\d]|$)`) // буквы/дефис/пробелы до разделителя
-	if m := re.FindStringSubmatch(raw); len(m) == 2 {
-		return strings.TrimSpace(m[1])
-	}
-	return raw
+	// Нормализуем неразрывные пробелы, возвращаем исходный текст (станция + минуты),
+	// чтобы точную нарезку сделал нормализатор.
+	raw = strings.ReplaceAll(raw, "\u00A0", " ")
+	raw = strings.ReplaceAll(raw, "\u202F", " ")
+	return strings.TrimSpace(raw)
 }
 
 // extractAreasFromDoc ищет площади по текстовым лейблам: "жилая", "жилая площадь", "кухня", "площадь кухни"

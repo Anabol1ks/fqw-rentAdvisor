@@ -25,9 +25,13 @@ type Options struct {
 
 // metro patterns: учитываем неразрывные пробелы и возможную точку после "мин"
 var (
-	metroRe            = regexp.MustCompile(`(?i)^\s*([^\d,;]+?)\s+(\d{1,3})\s*мин\.?`)
-	metroMinutesTailRe = regexp.MustCompile(`(?i)\s+\d{1,3}\s*мин\.?`)
-	nbSpaceRe          = regexp.MustCompile("[\u00A0\u202F]+")
+	// Структура текста из скрапера теперь полная: "Юго-Западная • 8 мин." или "Площадь Ильича, 12 мин."
+	// 1) Основной шаблон: берём всё до блока "N мин" как станцию (разрешаем буквы, пробелы, дефисы, точки)
+	metroRe = regexp.MustCompile(`(?i)^\s*(.*?)\s*[•·,;\-]*\s*(\d{1,3})\s*мин\.?`)
+	// 2) Хвост минут: чтобы уметь откусить его, если основной шаблон не сработал
+	metroMinutesTailRe = regexp.MustCompile(`(?i)[•·,;\s-]*\d{1,3}\s*мин\.?`)
+	// 3) Неразрывные пробелы → обычные
+	nbSpaceRe = regexp.MustCompile("[\u00A0\u202F]+")
 )
 
 type rawRow struct {
@@ -331,19 +335,26 @@ func parseMetro(raw string) (station string, walkMin int) {
 	}
 	// нормализуем неразрывные пробелы
 	raw = nbSpaceRe.ReplaceAllString(raw, " ")
-	// Берём первую часть до запятой
-	parts := strings.Split(raw, ",")
-	candidate := strings.TrimSpace(parts[0])
-	m := metroRe.FindStringSubmatch(candidate)
+	// Удалим лишние двойные пробелы
+	raw = regexp.MustCompile(`\s+`).ReplaceAllString(raw, " ")
+	// Попробуем извлечь станцию и минуты напрямую
+	m := metroRe.FindStringSubmatch(raw)
 	if len(m) == 3 {
 		st := strings.TrimSpace(m[1])
-		st = strings.Trim(st, "-—– ")
+		// Удалим буллеты/разделители в конце станции
+		st = strings.TrimRight(st, " •·,;-")
+		// Нормализуем дефисы вокруг
+		st = strings.Trim(st, " -—–")
 		station = st
 		fmt.Sscanf(m[2], "%d", &walkMin)
 	} else {
-		// срежем возможный " 8 мин." хвост, если regex не сработал из-за символов
-		cleaned := metroMinutesTailRe.ReplaceAllString(candidate, "")
-		station = strings.TrimSpace(cleaned)
+		// fallback: срежем возможный " • 8 мин." хвост и всё после
+		cleaned := metroMinutesTailRe.ReplaceAllString(raw, "")
+		// Также откусим часть после запятой, если осталась
+		if idx := strings.IndexRune(cleaned, ','); idx >= 0 {
+			cleaned = cleaned[:idx]
+		}
+		station = strings.TrimSpace(strings.TrimRight(cleaned, " •·,;-"))
 	}
 	return
 }

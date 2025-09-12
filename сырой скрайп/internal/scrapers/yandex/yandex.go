@@ -26,6 +26,7 @@ type Options struct {
 	City         string
 	StartPage    int
 	Pages        int
+	SingleURL    string // если задан, обойти только этот URL карточки
 	SnapshotDir  string
 	ProxyURL     string // опционально
 	DelayMin     time.Duration
@@ -90,27 +91,29 @@ func Run(o Options, log *zap.Logger) error {
 	pagesVisited := 0
 	emptyStreak := 0
 
-	// 1) на страницах выдачи собираем ссылки на детали и считаем их
-	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
-		href := e.Attr("href")
-		if href == "" || !detailRe.MatchString(href) {
-			return
-		}
-		// учитываем только если это страница выдачи (не детальная)
-		if detailRe.MatchString(e.Request.URL.Path) {
-			return
-		}
-		// если уже решили останавливаться — не планируем деталей
-		if atomic.LoadInt64(&shouldStop) == 1 {
-			return
-		}
-		link := e.Request.AbsoluteURL(href)
-		// инкремент счётчика для текущей страницы выдачи
-		mu.Lock()
-		listingLinkCount[e.Request.URL.String()]++
-		mu.Unlock()
-		_ = c.Visit(link)
-	})
+	// 1) на страницах выдачи собираем ссылки на детали и считаем их (если не single URL режим)
+	if strings.TrimSpace(o.SingleURL) == "" {
+		c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+			href := e.Attr("href")
+			if href == "" || !detailRe.MatchString(href) {
+				return
+			}
+			// учитываем только если это страница выдачи (не детальная)
+			if detailRe.MatchString(e.Request.URL.Path) {
+				return
+			}
+			// если уже решили останавливаться — не планируем деталей
+			if atomic.LoadInt64(&shouldStop) == 1 {
+				return
+			}
+			link := e.Request.AbsoluteURL(href)
+			// инкремент счётчика для текущей страницы выдачи
+			mu.Lock()
+			listingLinkCount[e.Request.URL.String()]++
+			mu.Unlock()
+			_ = c.Visit(link)
+		})
+	}
 
 	// 2) обработчик карточки
 	c.OnResponse(func(r *colly.Response) {
@@ -253,52 +256,54 @@ func Run(o Options, log *zap.Logger) error {
 	})
 
 	// 3) по окончании обработки любой страницы решаем, продолжать ли пагинацию выдачи
-	c.OnScraped(func(r *colly.Response) {
-		// интересуют только страницы выдачи (не деталки)
-		if detailRe.MatchString(r.Request.URL.Path) {
-			return
-		}
-		// обновим streak пустых страниц
-		mu.Lock()
-		cnt := listingLinkCount[r.Request.URL.String()]
-		mu.Unlock()
-		// информативный лог по странице выдачи
-		log.Info("list page scanned",
-			zap.String("url", r.Request.URL.String()),
-			zap.Int("detail_links", cnt),
-			zap.Int("pages_visited_next", pagesVisited+1),
-		)
-		if cnt == 0 {
-			emptyStreak++
-		} else {
-			emptyStreak = 0
-		}
-		pagesVisited++
-		// условия остановки пагинации
-		if o.MaxEmptyListingPages > 0 && emptyStreak >= o.MaxEmptyListingPages {
-			log.Info("stop on empty listing pages (will not schedule more)", zap.Int("streak", emptyStreak))
-			atomic.StoreInt64(&shouldStop, 1)
-			stopReason.Store("empty_listing_pages")
-			return
-		}
-		if atomic.LoadInt64(&shouldStop) == 1 {
-			return
-		}
-		if o.Pages > 0 && pagesVisited >= max(1, o.Pages) {
-			stopReason.Store("pages_limit")
-			return // достигли план по страницам
-		}
-		// запустить следующую страницу
-		next := currentPage + 1
-		if next >= o.StartPage+max(1, o.Pages) {
-			return
-		}
-		currentPage = next
-		u := o.buildPageURL(currentPage, log)
-		if err := c.Visit(u); err != nil {
-			log.Warn("visit list err: ", zap.Error(err))
-		}
-	})
+	if strings.TrimSpace(o.SingleURL) == "" {
+		c.OnScraped(func(r *colly.Response) {
+			// интересуют только страницы выдачи (не деталки)
+			if detailRe.MatchString(r.Request.URL.Path) {
+				return
+			}
+			// обновим streak пустых страниц
+			mu.Lock()
+			cnt := listingLinkCount[r.Request.URL.String()]
+			mu.Unlock()
+			// информативный лог по странице выдачи
+			log.Info("list page scanned",
+				zap.String("url", r.Request.URL.String()),
+				zap.Int("detail_links", cnt),
+				zap.Int("pages_visited_next", pagesVisited+1),
+			)
+			if cnt == 0 {
+				emptyStreak++
+			} else {
+				emptyStreak = 0
+			}
+			pagesVisited++
+			// условия остановки пагинации
+			if o.MaxEmptyListingPages > 0 && emptyStreak >= o.MaxEmptyListingPages {
+				log.Info("stop on empty listing pages (will not schedule more)", zap.Int("streak", emptyStreak))
+				atomic.StoreInt64(&shouldStop, 1)
+				stopReason.Store("empty_listing_pages")
+				return
+			}
+			if atomic.LoadInt64(&shouldStop) == 1 {
+				return
+			}
+			if o.Pages > 0 && pagesVisited >= max(1, o.Pages) {
+				stopReason.Store("pages_limit")
+				return // достигли план по страницам
+			}
+			// запустить следующую страницу
+			next := currentPage + 1
+			if next >= o.StartPage+max(1, o.Pages) {
+				return
+			}
+			currentPage = next
+			u := o.buildPageURL(currentPage, log)
+			if err := c.Visit(u); err != nil {
+				log.Warn("visit list err: ", zap.Error(err))
+			}
+		})
+	}
 
 	c.OnRequest(func(r *colly.Request) {
 		// если достигнут лимит — отменяем дальнейшие запросы
@@ -332,10 +337,16 @@ func Run(o Options, log *zap.Logger) error {
 		}
 	})
 
-	// запускам обход: стартуем с первой страницы, дальше листаем в OnScraped
-	u := o.buildPageURL(currentPage, log)
-	if err := c.Visit(u); err != nil {
-		log.Warn("visit list err: ", zap.Error(err))
+	// запускам обход: либо одиночный URL, либо стартовая страница выдачи
+	if strings.TrimSpace(o.SingleURL) != "" {
+		if err := c.Visit(o.SingleURL); err != nil {
+			log.Warn("visit single url err: ", zap.Error(err), zap.String("url", o.SingleURL))
+		}
+	} else {
+		u := o.buildPageURL(currentPage, log)
+		if err := c.Visit(u); err != nil {
+			log.Warn("visit list err: ", zap.Error(err))
+		}
 	}
 
 	c.Wait()
