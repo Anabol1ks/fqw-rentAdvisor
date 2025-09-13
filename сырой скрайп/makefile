@@ -37,6 +37,25 @@ mlflow-ui:
 	mlflow ui --port 5000
 
 
+# --- raw table transfer helpers ---
+# Usage examples (PowerShell):
+#  make export-raw FILE=raw.bin
+#  make import-raw FILE=raw.bin
+#  make copy-raw SRC_DSN="postgres://..." DST_DSN="postgres://..."
+
+
+FILE=listing_raw.bin
+
+export-raw:
+	go run ./cmd/xfer_listing_raw --mode=export --schema=public --table=listing_raw --file="$(FILE)"
+
+import-raw:
+	go run ./cmd/xfer_listing_raw --mode=import --schema=public --table=listing_raw --file="$(FILE)"
+
+copy-raw:
+	go run ./cmd/xfer_listing_raw --mode=copy --schema=public --table=listing_raw --src="$(SRC_DSN)" --dst="$(DST_DSN)"
+
+
 pipeline:
 	make migrate
 	make norm
