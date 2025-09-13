@@ -90,6 +90,7 @@ func RunBatch(db *gorm.DB, log *zap.Logger, prov Provider, o Options) error {
 					// Провайдер
 					res, err := prov.Geocode(ctx, addr)
 					if err != nil {
+						log.Warn("geocode fail", zap.String("addr", addr), zap.Error(err))
 						continue
 					}
 					// Кэш + апдейт

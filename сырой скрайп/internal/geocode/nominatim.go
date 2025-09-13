@@ -32,9 +32,11 @@ func (n *Nominatim) Geocode(ctx context.Context, q string) (*Result, error) {
 		n.HTTPClient = &http.Client{Timeout: 10 * time.Second}
 	}
 	params := url.Values{
-		"format": {"json"},
-		"limit":  {"1"},
-		"q":      {q},
+		"format":         {"jsonv2"},
+		"limit":          {"1"},
+		"q":              {q},
+		"countrycodes":   {"ru"},
+		"addressdetails": {"0"},
 	}
 	endpoint := n.BaseURL + "/search?" + params.Encode()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -50,6 +52,9 @@ func (n *Nominatim) Geocode(ctx context.Context, q string) (*Result, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("nominatim http %d", resp.StatusCode)
+	}
 
 	var arr []nomResp
 	if err := json.NewDecoder(resp.Body).Decode(&arr); err != nil {
