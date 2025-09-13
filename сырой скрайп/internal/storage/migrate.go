@@ -56,6 +56,10 @@ END$$;
 -- индексы по городу/району и цене
 CREATE INDEX IF NOT EXISTS idx_listing_city_district ON listing (city, district);
 CREATE INDEX IF NOT EXISTS idx_listing_price ON listing (price_rub);
+
+-- уникальный индекс под ключ конфликта upsert'а
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_listing_src_deal_ext
+  ON listing(source, deal_type, external_id);
 `
 
 var geomTrig = `

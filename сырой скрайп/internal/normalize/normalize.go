@@ -32,6 +32,8 @@ var (
 	metroMinutesTailRe = regexp.MustCompile(`(?i)[•·,;\s-]*\d{1,3}\s*мин\.?`)
 	// 3) Неразрывные пробелы → обычные
 	nbSpaceRe = regexp.MustCompile("[\u00A0\u202F]+")
+	// 4) Общий space-редьюсер
+	spaceRe = regexp.MustCompile(`\s+`)
 )
 
 type rawRow struct {
@@ -90,7 +92,7 @@ func Run(db *gorm.DB, log *zap.Logger, o Options) error {
 			if o.Limit > 0 && processed >= o.Limit {
 				break
 			}
-			pr, _ := computePrice(r.DealType, r.PriceValue, r.PricePeriod, o.DailyToMonthlyK)
+			pr, period := computePrice(r.DealType, r.PriceValue, r.PricePeriod, o.DailyToMonthlyK)
 			if pr != nil && (r.AreaTotal.Valid && r.AreaTotal.Float64 > 0) {
 				ppm := *pr / r.AreaTotal.Float64
 				pround := math.Round(ppm*100) / 100
@@ -120,47 +122,61 @@ func Run(db *gorm.DB, log *zap.Logger, o Options) error {
 				district := nullToString(r.District)
 				now := time.Now().UTC()
 
-				// upsert через raw SQL, сохраняя first_seen только при вставке
-				sql := `INSERT INTO listing
-                (source, deal_type, external_id, url, title, description, price_rub, price_period, price_per_m2, rooms, area_total, area_living, area_kitchen, floor, floors_total, year_built, house_material, condition, address_norm, city, district, metro, metro_station, metro_walk_min, contact_phone_hash, is_active, first_seen, last_seen, lat, lon)
-                VALUES (@source,@deal_type,@external_id,@url,@title,@description,@price_rub,@price_period,@price_per_m2,@rooms,@area_total,@area_living,@area_kitchen,@floor,@floors_total,@year_built,@house_material,@condition,@address_norm,@city,@district,@metro,@metro_station,@metro_walk_min,NULL,true,@first_seen,@last_seen,@lat,@lon)
-                ON CONFLICT (source, deal_type, external_id) DO UPDATE SET
-                  url=EXCLUDED.url,
-                  title=EXCLUDED.title,
-                  description=EXCLUDED.description,
-                  price_rub=EXCLUDED.price_rub,
-                  price_period=EXCLUDED.price_period,
-                  price_per_m2=EXCLUDED.price_per_m2,
-                  rooms=EXCLUDED.rooms,
-                  area_total=EXCLUDED.area_total,
-                  area_living=EXCLUDED.area_living,
-                  area_kitchen=EXCLUDED.area_kitchen,
-                  floor=EXCLUDED.floor,
-                  floors_total=EXCLUDED.floors_total,
-                  year_built=EXCLUDED.year_built,
-                  house_material=EXCLUDED.house_material,
-                  condition=EXCLUDED.condition,
-                  address_norm=EXCLUDED.address_norm,
-                  city=EXCLUDED.city,
-                  district=EXCLUDED.district,
-                  metro=EXCLUDED.metro,
-                  metro_station=EXCLUDED.metro_station,
-                  metro_walk_min=EXCLUDED.metro_walk_min,
-                  is_active=true,
-                  last_seen=EXCLUDED.last_seen,
-                  lat=EXCLUDED.lat,
-                  lon=EXCLUDED.lon
-                RETURNING (xmax = 0) AS inserted`
+				// upsert через raw SQL с CTE, чтобы всегда вернуть строку inserted (true/false)
+				sql := `WITH upsert AS (
+								INSERT INTO listing
+								(source, deal_type, external_id, url, title, description, price_rub, price_period, price_per_m2, rooms, area_total, area_living, area_kitchen, floor, floors_total, year_built, house_material, condition, address_norm, city, district, metro, metro_station, metro_walk_min, contact_phone_hash, is_active, first_seen, last_seen, lat, lon)
+								VALUES (@source,@deal_type,@external_id,@url,@title,@description,@price_rub,@price_period,@price_per_m2,@rooms,@area_total,@area_living,@area_kitchen,@floor,@floors_total,@year_built,@house_material,@condition,@address_norm,@city,@district,@metro,@metro_station,@metro_walk_min,NULL,true,@first_seen,@last_seen,@lat,@lon)
+								ON CONFLICT (source, deal_type, external_id) DO UPDATE SET
+									url=EXCLUDED.url,
+									title=EXCLUDED.title,
+									description=EXCLUDED.description,
+									price_rub=EXCLUDED.price_rub,
+									price_period=EXCLUDED.price_period,
+									price_per_m2=EXCLUDED.price_per_m2,
+									rooms=EXCLUDED.rooms,
+									area_total=EXCLUDED.area_total,
+									area_living=EXCLUDED.area_living,
+									area_kitchen=EXCLUDED.area_kitchen,
+									floor=EXCLUDED.floor,
+									floors_total=EXCLUDED.floors_total,
+									year_built=EXCLUDED.year_built,
+									house_material=EXCLUDED.house_material,
+									condition=EXCLUDED.condition,
+									address_norm=EXCLUDED.address_norm,
+									city=EXCLUDED.city,
+									district=EXCLUDED.district,
+									metro=EXCLUDED.metro,
+									metro_station=EXCLUDED.metro_station,
+									metro_walk_min=EXCLUDED.metro_walk_min,
+									is_active=true,
+									last_seen=EXCLUDED.last_seen,
+									lat=EXCLUDED.lat,
+									lon=EXCLUDED.lon
+								WHERE (listing.url, listing.title, listing.description, listing.price_rub, listing.price_period,
+											 listing.price_per_m2, listing.rooms, listing.area_total, listing.area_living, listing.area_kitchen,
+											 listing.floor, listing.floors_total, listing.year_built, listing.house_material, listing.condition,
+											 listing.address_norm, listing.city, listing.district, listing.metro, listing.metro_station,
+											 listing.metro_walk_min, listing.lat, listing.lon)
+									 IS DISTINCT FROM
+											(EXCLUDED.url, EXCLUDED.title, EXCLUDED.description, EXCLUDED.price_rub, EXCLUDED.price_period,
+											 EXCLUDED.price_per_m2, EXCLUDED.rooms, EXCLUDED.area_total, EXCLUDED.area_living, EXCLUDED.area_kitchen,
+											 EXCLUDED.floor, EXCLUDED.floors_total, EXCLUDED.year_built, EXCLUDED.house_material, EXCLUDED.condition,
+											 EXCLUDED.address_norm, EXCLUDED.city, EXCLUDED.district, EXCLUDED.metro, EXCLUDED.metro_station,
+											 EXCLUDED.metro_walk_min, EXCLUDED.lat, EXCLUDED.lon)
+								RETURNING (xmax = 0) AS inserted
+								)
+								SELECT COALESCE(bool_or(inserted), false) AS inserted FROM upsert`
 
 				params := map[string]any{
 					"source":         r.Source,
 					"deal_type":      r.DealType,
 					"external_id":    r.ExternalID,
 					"url":            r.URL,
-					"title":          nullToPtr(r.Title),
-					"description":    nullToPtr(r.Description),
+					"title":          emptyToNil(nullToString(r.Title)),
+					"description":    emptyToNil(nullToString(r.Description)),
 					"price_rub":      pr,
-					"price_period":   nullToPtr(r.PricePeriod),
+					"price_period":   period,
 					"price_per_m2":   pround,
 					"rooms":          nullIntPtr(r.Rooms),
 					"area_total":     nullFloatPtr(r.AreaTotal),
@@ -169,24 +185,24 @@ func Run(db *gorm.DB, log *zap.Logger, o Options) error {
 					"floor":          nullIntPtr(r.Floor),
 					"floors_total":   nullIntPtr(r.FloorsTotal),
 					"year_built":     nullIntPtr(r.YearBuilt),
-					"house_material": nullToPtr(r.HouseMaterial),
-					"condition":      nullToPtr(r.Condition),
-					"address_norm":   addrNorm,
+					"house_material": emptyToNil(nullToString(r.HouseMaterial)),
+					"condition":      emptyToNil(nullToString(r.Condition)),
+					"address_norm":   emptyToNil(addrNorm),
 					"city":           city,
 					"district":       district,
-					"metro":          nullToPtr(r.Metro),
-					"metro_station":  station,
+					"metro":          emptyToNil(nullToString(r.Metro)),
+					"metro_station":  emptyToNil(station),
 					"metro_walk_min": walkPtr,
 					"first_seen":     r.CollectedAt,
 					"last_seen":      now,
 					"lat":            nullFloatPtr(r.Lat),
 					"lon":            nullFloatPtr(r.Lon),
 				}
-				var ins bool
-				if err := db.WithContext(ctx).Raw(sql, params).Scan(&ins).Error; err != nil {
+				var res struct{ Inserted bool }
+				if err := db.WithContext(ctx).Raw(sql, params).Scan(&res).Error; err != nil {
 					log.Warn("upsert listing", zap.Error(err), zap.String("ext_id", r.ExternalID))
 				} else {
-					if ins {
+					if res.Inserted {
 						inserted++
 					} else {
 						updated++
@@ -207,46 +223,60 @@ func Run(db *gorm.DB, log *zap.Logger, o Options) error {
 				city := o.DefaultCity
 				district := nullToString(r.District)
 				now := time.Now().UTC()
-				pr, _ := computePrice(r.DealType, r.PriceValue, r.PricePeriod, o.DailyToMonthlyK)
-				sql := `INSERT INTO listing
-                (source, deal_type, external_id, url, title, description, price_rub, price_period, price_per_m2, rooms, area_total, area_living, area_kitchen, floor, floors_total, year_built, house_material, condition, address_norm, city, district, metro, metro_station, metro_walk_min, contact_phone_hash, is_active, first_seen, last_seen, lat, lon)
-                VALUES (@source,@deal_type,@external_id,@url,@title,@description,@price_rub,@price_period,NULL,@rooms,@area_total,@area_living,@area_kitchen,@floor,@floors_total,@year_built,@house_material,@condition,@address_norm,@city,@district,@metro,@metro_station,@metro_walk_min,NULL,true,@first_seen,@last_seen,@lat,@lon)
-                ON CONFLICT (source, deal_type, external_id) DO UPDATE SET
-                  url=EXCLUDED.url,
-                  title=EXCLUDED.title,
-                  description=EXCLUDED.description,
-                  price_rub=EXCLUDED.price_rub,
-                  price_period=EXCLUDED.price_period,
-                  price_per_m2=EXCLUDED.price_per_m2,
-                  rooms=EXCLUDED.rooms,
-                  area_total=EXCLUDED.area_total,
-                  area_living=EXCLUDED.area_living,
-                  area_kitchen=EXCLUDED.area_kitchen,
-                  floor=EXCLUDED.floor,
-                  floors_total=EXCLUDED.floors_total,
-                  year_built=EXCLUDED.year_built,
-                  house_material=EXCLUDED.house_material,
-                  condition=EXCLUDED.condition,
-                  address_norm=EXCLUDED.address_norm,
-                  city=EXCLUDED.city,
-                  district=EXCLUDED.district,
-                  metro=EXCLUDED.metro,
-                  metro_station=EXCLUDED.metro_station,
-                  metro_walk_min=EXCLUDED.metro_walk_min,
-                  is_active=true,
-                  last_seen=EXCLUDED.last_seen,
-                  lat=EXCLUDED.lat,
-                  lon=EXCLUDED.lon
-                RETURNING (xmax = 0) AS inserted`
+				pr, period := computePrice(r.DealType, r.PriceValue, r.PricePeriod, o.DailyToMonthlyK)
+				sql := `WITH upsert AS (
+								INSERT INTO listing
+								(source, deal_type, external_id, url, title, description, price_rub, price_period, price_per_m2, rooms, area_total, area_living, area_kitchen, floor, floors_total, year_built, house_material, condition, address_norm, city, district, metro, metro_station, metro_walk_min, contact_phone_hash, is_active, first_seen, last_seen, lat, lon)
+								VALUES (@source,@deal_type,@external_id,@url,@title,@description,@price_rub,@price_period,NULL,@rooms,@area_total,@area_living,@area_kitchen,@floor,@floors_total,@year_built,@house_material,@condition,@address_norm,@city,@district,@metro,@metro_station,@metro_walk_min,NULL,true,@first_seen,@last_seen,@lat,@lon)
+								ON CONFLICT (source, deal_type, external_id) DO UPDATE SET
+									url=EXCLUDED.url,
+									title=EXCLUDED.title,
+									description=EXCLUDED.description,
+									price_rub=EXCLUDED.price_rub,
+									price_period=EXCLUDED.price_period,
+									price_per_m2=EXCLUDED.price_per_m2,
+									rooms=EXCLUDED.rooms,
+									area_total=EXCLUDED.area_total,
+									area_living=EXCLUDED.area_living,
+									area_kitchen=EXCLUDED.area_kitchen,
+									floor=EXCLUDED.floor,
+									floors_total=EXCLUDED.floors_total,
+									year_built=EXCLUDED.year_built,
+									house_material=EXCLUDED.house_material,
+									condition=EXCLUDED.condition,
+									address_norm=EXCLUDED.address_norm,
+									city=EXCLUDED.city,
+									district=EXCLUDED.district,
+									metro=EXCLUDED.metro,
+									metro_station=EXCLUDED.metro_station,
+									metro_walk_min=EXCLUDED.metro_walk_min,
+									is_active=true,
+									last_seen=EXCLUDED.last_seen,
+									lat=EXCLUDED.lat,
+									lon=EXCLUDED.lon
+								WHERE (listing.url, listing.title, listing.description, listing.price_rub, listing.price_period,
+											 listing.price_per_m2, listing.rooms, listing.area_total, listing.area_living, listing.area_kitchen,
+											 listing.floor, listing.floors_total, listing.year_built, listing.house_material, listing.condition,
+											 listing.address_norm, listing.city, listing.district, listing.metro, listing.metro_station,
+											 listing.metro_walk_min, listing.lat, listing.lon)
+									 IS DISTINCT FROM
+											(EXCLUDED.url, EXCLUDED.title, EXCLUDED.description, EXCLUDED.price_rub, EXCLUDED.price_period,
+											 EXCLUDED.price_per_m2, EXCLUDED.rooms, EXCLUDED.area_total, EXCLUDED.area_living, EXCLUDED.area_kitchen,
+											 EXCLUDED.floor, EXCLUDED.floors_total, EXCLUDED.year_built, EXCLUDED.house_material, EXCLUDED.condition,
+											 EXCLUDED.address_norm, EXCLUDED.city, EXCLUDED.district, EXCLUDED.metro, EXCLUDED.metro_station,
+											 EXCLUDED.metro_walk_min, EXCLUDED.lat, EXCLUDED.lon)
+								RETURNING (xmax = 0) AS inserted
+								)
+								SELECT COALESCE(bool_or(inserted), false) AS inserted FROM upsert`
 				params := map[string]any{
 					"source":         r.Source,
 					"deal_type":      r.DealType,
 					"external_id":    r.ExternalID,
 					"url":            r.URL,
-					"title":          nullToPtr(r.Title),
-					"description":    nullToPtr(r.Description),
+					"title":          emptyToNil(nullToString(r.Title)),
+					"description":    emptyToNil(nullToString(r.Description)),
 					"price_rub":      pr,
-					"price_period":   nullToPtr(r.PricePeriod),
+					"price_period":   period,
 					"rooms":          nullIntPtr(r.Rooms),
 					"area_total":     nullFloatPtr(r.AreaTotal),
 					"area_living":    nullFloatPtr(r.AreaLiving),
@@ -254,24 +284,24 @@ func Run(db *gorm.DB, log *zap.Logger, o Options) error {
 					"floor":          nullIntPtr(r.Floor),
 					"floors_total":   nullIntPtr(r.FloorsTotal),
 					"year_built":     nullIntPtr(r.YearBuilt),
-					"house_material": nullToPtr(r.HouseMaterial),
-					"condition":      nullToPtr(r.Condition),
-					"address_norm":   addrNorm,
+					"house_material": emptyToNil(nullToString(r.HouseMaterial)),
+					"condition":      emptyToNil(nullToString(r.Condition)),
+					"address_norm":   emptyToNil(addrNorm),
 					"city":           city,
 					"district":       district,
-					"metro":          nullToPtr(r.Metro),
-					"metro_station":  station,
+					"metro":          emptyToNil(nullToString(r.Metro)),
+					"metro_station":  emptyToNil(station),
 					"metro_walk_min": walkPtr,
 					"first_seen":     r.CollectedAt,
 					"last_seen":      now,
 					"lat":            nullFloatPtr(r.Lat),
 					"lon":            nullFloatPtr(r.Lon),
 				}
-				var ins bool
-				if err := db.WithContext(ctx).Raw(sql, params).Scan(&ins).Error; err != nil {
+				var res struct{ Inserted bool }
+				if err := db.WithContext(ctx).Raw(sql, params).Scan(&res).Error; err != nil {
 					log.Warn("upsert listing (nopm2)", zap.Error(err), zap.String("ext_id", r.ExternalID))
 				} else {
-					if ins {
+					if res.Inserted {
 						inserted++
 					} else {
 						updated++
@@ -317,7 +347,7 @@ func computePrice(dealType string, priceValue sql.NullFloat64, pricePeriod sql.N
 	case "rent_daily":
 		// конвертируем в месячную
 		if dailyK <= 0 {
-			dailyK = 30
+			dailyK = 30.44 // 365/12
 		}
 		m := v * dailyK
 		p := "month"
@@ -336,7 +366,7 @@ func parseMetro(raw string) (station string, walkMin int) {
 	// нормализуем неразрывные пробелы
 	raw = nbSpaceRe.ReplaceAllString(raw, " ")
 	// Удалим лишние двойные пробелы
-	raw = regexp.MustCompile(`\s+`).ReplaceAllString(raw, " ")
+	raw = spaceRe.ReplaceAllString(raw, " ")
 	// Попробуем извлечь станцию и минуты напрямую
 	m := metroRe.FindStringSubmatch(raw)
 	if len(m) == 3 {
@@ -389,3 +419,12 @@ func nullFloatPtr(n sql.NullFloat64) *float64 {
 
 // defensive helper (not used yet)
 var ErrSkip = errors.New("skip")
+
+// emptyToNil: trim and collapse spaces; return nil for empty strings
+func emptyToNil(s string) *string {
+	s = strings.TrimSpace(spaceRe.ReplaceAllString(s, " "))
+	if s == "" {
+		return nil
+	}
+	return &s
+}
