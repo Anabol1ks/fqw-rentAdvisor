@@ -30,6 +30,12 @@ import-metro:
 dataset:
 	python ml/prepare_dataset.py
 
+train-ridge:
+	python ml/train_ridge.py
+
+mlflow-ui:
+	mlflow ui --port 5000
+
 
 pipeline:
 	make migrate
