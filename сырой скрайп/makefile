@@ -15,3 +15,13 @@ geocode:
 
 dedupe:
 	go run ./cmd/dedupe
+
+deactivate:
+	go run ./cmd/deactivate
+
+
+pipeline:
+	make norm
+	make geocode
+	make dedupe
+	make deactivate
