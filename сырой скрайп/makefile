@@ -12,3 +12,6 @@ migrate:
 
 geocode:
 	go run ./cmd/geocode --workers=2 --sleep=800ms --city="Москва" --limit=0
+
+dedupe:
+	go run ./cmd/dedupe

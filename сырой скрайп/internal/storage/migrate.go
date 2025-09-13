@@ -64,6 +64,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS uidx_listing_src_deal_ext
 -- индексы для geocode & поиска пропусков координат
 CREATE INDEX IF NOT EXISTS idx_geocode_cache_created_at ON geocode_cache(created_at);
 CREATE INDEX IF NOT EXISTS idx_listing_lat_lon_null ON listing ((lat IS NULL), (lon IS NULL));
+
+-- таблица для кластеров дубликатов
+CREATE TABLE IF NOT EXISTS dedupe_cluster (
+  master_id  BIGINT NOT NULL,
+  member_id  BIGINT PRIMARY KEY,
+  score      NUMERIC(5,3) NOT NULL,
+  method     TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dedupe_master ON dedupe_cluster(master_id);
 `
 
 var geomTrig = `
