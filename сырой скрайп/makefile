@@ -9,3 +9,6 @@ norm:
 
 migrate:
 	go run ./cmd/migrate
+
+geocode:
+	go run ./cmd/geocode --workers=2 --sleep=800ms --city="Москва" --limit=0

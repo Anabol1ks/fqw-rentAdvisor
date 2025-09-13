@@ -60,6 +60,10 @@ CREATE INDEX IF NOT EXISTS idx_listing_price ON listing (price_rub);
 -- уникальный индекс под ключ конфликта upsert'а
 CREATE UNIQUE INDEX IF NOT EXISTS uidx_listing_src_deal_ext
   ON listing(source, deal_type, external_id);
+
+-- индексы для geocode & поиска пропусков координат
+CREATE INDEX IF NOT EXISTS idx_geocode_cache_created_at ON geocode_cache(created_at);
+CREATE INDEX IF NOT EXISTS idx_listing_lat_lon_null ON listing ((lat IS NULL), (lon IS NULL));
 `
 
 var geomTrig = `
