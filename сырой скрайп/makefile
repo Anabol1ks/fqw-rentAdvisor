@@ -1,3 +1,5 @@
+CITY = Москва
+
 scrape:
 	go run ./cmd/scrape_yandex --city=moskva --start=1 --pages=1200 --max-empty-pages=5 --parallel=1 --delay-min=2000ms --delay-max=6000ms --deal=rent --max-items=1000 --use-referer=true
 
@@ -11,17 +13,25 @@ migrate:
 	go run ./cmd/migrate
 
 geocode:
-	go run ./cmd/geocode --workers=2 --sleep=800ms --city="Москва" --limit=0
+	go run ./cmd/geocode --workers=2 --sleep=800ms --city="$(CITY)" --limit=0
 
 dedupe:
 	go run ./cmd/dedupe
 
+enrich:
+	go run ./cmd/enrich --city="$(CITY)"
+
 deactivate:
 	go run ./cmd/deactivate
 
+import-metro:
+	go run ./cmd/import_metro --file="./metro.ru.csv" --city="$(CITY)" --sep=,
+
 
 pipeline:
+	make migrate
 	make norm
 	make geocode
+	make enrich
 	make dedupe
 	make deactivate

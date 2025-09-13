@@ -74,6 +74,33 @@ CREATE TABLE IF NOT EXISTS dedupe_cluster (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_dedupe_master ON dedupe_cluster(master_id);
+
+-- ref tables for enrichment
+CREATE TABLE IF NOT EXISTS ref_city (
+  city   TEXT PRIMARY KEY,
+  center GEOGRAPHY(POINT,4326)
+);
+
+CREATE TABLE IF NOT EXISTS ref_metro (
+  id   BIGSERIAL PRIMARY KEY,
+  city TEXT NOT NULL,
+  name TEXT NOT NULL,
+  geom GEOGRAPHY(POINT,4326)
+);
+CREATE INDEX IF NOT EXISTS idx_ref_metro_city ON ref_metro(city);
+CREATE INDEX IF NOT EXISTS idx_ref_metro_geom ON ref_metro USING GIST(geom);
+CREATE UNIQUE INDEX IF NOT EXISTS uidx_ref_metro_city_name ON ref_metro(city, name);
+
+-- listing enrichment feature columns
+ALTER TABLE listing
+  ADD COLUMN IF NOT EXISTS dist_to_metro_m   DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS dist_to_center_km DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS density_500m      INT;
+
+-- seed Moscow center
+INSERT INTO ref_city(city, center)
+VALUES ('Москва', ST_SetSRID(ST_MakePoint(37.6175,55.7506),4326)::geography)
+ON CONFLICT (city) DO UPDATE SET center=EXCLUDED.center;
 `
 
 var geomTrig = `
