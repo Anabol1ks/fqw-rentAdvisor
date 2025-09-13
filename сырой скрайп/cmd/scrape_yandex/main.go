@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"os"
 	"skripe/config"
 	"skripe/internal/repo"
 	"skripe/internal/scrapers/yandex"
 	"skripe/internal/storage"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -30,21 +33,27 @@ func main() {
 
 	db := storage.ConnectDB(&cfg.DB, log)
 	var (
-		city      = flag.String("city", "moskva", "Город в URL (пример: moskva, peterburg)")
-		startPage = flag.Int("start", 1, "Стартовая страница")
-		pages     = flag.Int("pages", 1, "Сколько страниц обойти")
-		urlOnly   = flag.String("url", "", "Тест: конкретный URL карточки (обходит только его)")
-		proxyURL  = flag.String("proxy", "", "HTTP/HTTPS proxy (опционально)")
-		delayMin  = flag.Duration("delay-min", 1200*time.Millisecond, "Минимальная задержка между запросами")
-		delayMax  = flag.Duration("delay-max", 2500*time.Millisecond, "Максимальная задержка между запросами")
-		parallel  = flag.Int("parallel", 2, "Параллелизм")
-		maxItems  = flag.Int("max-items", 0, "Максимум карточек для сбора (0 = без лимита)")
-		maxEmpty  = flag.Int("max-empty-pages", 0, "Остановить после N подряд пустых страниц выдачи (0 = игнорировать)")
-		deal      = flag.String("deal", "sale", "sale|rent")
-		cookie    = flag.String("cookie", "", "Строка Cookie для realty.yandex.ru (опционально)")
-		useRef    = flag.Bool("use-referer", true, "Включить заголовок Referer для Colly")
+		city       = flag.String("city", "moskva", "Город в URL (пример: moskva, peterburg)")
+		startPage  = flag.Int("start", 1, "Стартовая страница")
+		pages      = flag.Int("pages", 1, "Сколько страниц обойти")
+		urlOnly    = flag.String("url", "", "Тест: конкретный URL карточки (обходит только его)")
+		proxyURL   = flag.String("proxy", "", "HTTP/HTTPS proxy (опционально)")
+		delayMin   = flag.Duration("delay-min", 1200*time.Millisecond, "Минимальная задержка между запросами")
+		delayMax   = flag.Duration("delay-max", 2500*time.Millisecond, "Максимальная задержка между запросами")
+		parallel   = flag.Int("parallel", 2, "Параллелизм")
+		maxItems   = flag.Int("max-items", 0, "Максимум карточек для сбора (0 = без лимита)")
+		maxEmpty   = flag.Int("max-empty-pages", 0, "Остановить после N подряд пустых страниц выдачи (0 = игнорировать)")
+		deal       = flag.String("deal", "sale", "sale|rent")
+		cookieFlag = flag.String("cookie", "", "Строка Cookie для realty.yandex.ru (опционально)")
+		useRef     = flag.Bool("use-referer", true, "Включить заголовок Referer для Colly")
 	)
 	flag.Parse()
+
+	cookie := *cookieFlag
+	if cookie == "" {
+		cookie = strings.TrimSpace(os.Getenv("COOKIE"))
+	}
+	cookie = parseCookieEnv(cookie)
 
 	repoRaw := repo.NewRawRepository(db)
 
@@ -59,7 +68,7 @@ func main() {
 		DelayMin:             *delayMin,
 		DelayMax:             *delayMax,
 		Parallelism:          *parallel,
-		Cookie:               *cookie,
+		Cookie:               cookie,
 		UseReferer:           *useRef,
 		MaxItems:             *maxItems,
 		MaxEmptyListingPages: *maxEmpty,
@@ -73,6 +82,49 @@ func main() {
 	// storage.Migrate(db, log)
 	_ = db.WithContext(context.Background()).Exec("SELECT 1").Error
 	storage.CloseDB(db, log)
+}
+
+// parseCookieEnv принимает либо готовый заголовок Cookie (одной строкой),
+// либо содержимое файла в формате "# Netscape HTTP Cookie File" (много строк)
+// и возвращает корректный HTTP-заголовок Cookie (одной строкой "k=v; k2=v2").
+func parseCookieEnv(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	// уберём оборачивающие кавычки, если они остались из .env
+	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
+		s = strings.TrimSuffix(strings.TrimPrefix(s, s[:1]), s[len(s)-1:])
+	}
+	// Если это Netscape Cookie File (multi-line с табами) — распарсим
+	if strings.HasPrefix(s, "# Netscape HTTP Cookie File") || strings.Contains(s, "\t") || strings.Contains(s, "\n") {
+		lines := strings.Split(s, "\n")
+		pairs := make([]string, 0, len(lines))
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			// Формат: domain \t flag \t path \t secure \t expires \t name \t value
+			fields := strings.Split(line, "\t")
+			if len(fields) < 7 {
+				// fallback: по пробелам
+				fields = strings.Fields(line)
+			}
+			if len(fields) >= 7 {
+				name := strings.TrimSpace(fields[5])
+				value := strings.TrimSpace(fields[6])
+				if name != "" {
+					pairs = append(pairs, fmt.Sprintf("%s=%s", name, value))
+				}
+			}
+		}
+		return strings.TrimSpace(strings.Join(pairs, "; "))
+	}
+	// Иначе считаем, что это уже готовый Cookie header; уберём переводы строк
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.TrimSpace(s)
 }
 
 func getStartURLTmpl(deal string) string {
