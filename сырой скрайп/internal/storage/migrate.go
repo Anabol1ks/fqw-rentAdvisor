@@ -101,6 +101,12 @@ ALTER TABLE listing
 INSERT INTO ref_city(city, center)
 VALUES ('Москва', ST_SetSRID(ST_MakePoint(37.6175,55.7506),4326)::geography)
 ON CONFLICT (city) DO UPDATE SET center=EXCLUDED.center;
+
+-- view with only master (exclude cluster members) for ML exports
+CREATE OR REPLACE VIEW listing_master AS
+SELECT *
+FROM listing
+WHERE id NOT IN (SELECT member_id FROM dedupe_cluster);
 `
 
 var geomTrig = `

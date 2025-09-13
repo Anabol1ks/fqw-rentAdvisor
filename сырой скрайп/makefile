@@ -27,6 +27,9 @@ deactivate:
 import-metro:
 	go run ./cmd/import_metro --file="./metro.ru.csv" --city="$(CITY)" --sep=,
 
+dataset:
+	python ml/prepare_dataset.py
+
 
 pipeline:
 	make migrate
