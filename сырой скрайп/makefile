@@ -36,6 +36,10 @@ train-ridge:
 mlflow-ui:
 	mlflow ui --port 5000
 
+# Аудит фичей и таргета (EDA)
+audit:
+	python -m features.audit
+
 
 # --- raw table transfer helpers ---
 # Usage examples (PowerShell):
