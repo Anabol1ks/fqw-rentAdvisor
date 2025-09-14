@@ -3,8 +3,14 @@ CITY = Москва
 scrape:
 	go run ./cmd/scrape_yandex --city=moskva --start=1 --pages=1200 --max-empty-pages=5 --parallel=1 --delay-min=2000ms --delay-max=6000ms --deal=rent --max-items=1000 --use-referer=true
 
+scrape-cian:
+	go run ./cmd/scrape_cian --start=1 --pages=1200 --max-empty-pages=5 --parallel=1 --delay-min=2000ms --delay-max=6000ms --deal=sale --max-items=1000 --use-referer=true
+
 scrape-one:
 	go run ./cmd/scrape_yandex --url="$(URL)" --deal=sale --use-referer=true --cookie="$$(Get-Content $(COOKIE_FILE) -Raw)"
+
+scrape-cian-one:
+	go run ./cmd/scrape_cian --url="$(URL)" --deal=sale --use-referer=true --cookie="$$(Get-Content $(COOKIE_FILE) -Raw)"
 
 norm:
 	go run ./cmd/normalize --limit=0 --batch=500 --sleep-ms=0
@@ -24,6 +30,9 @@ enrich:
 deactivate:
 	go run ./cmd/deactivate
 
+fix-seq:
+	go run ./cmd/fix_sequences
+
 import-metro:
 	go run ./cmd/import_metro --file="./metro.ru.csv" --city="$(CITY)" --sep=,
 
@@ -35,6 +44,10 @@ train-ridge:
 
 mlflow-ui:
 	mlflow ui --port 5000
+
+# Аудит фичей и таргета (EDA)
+audit:
+	python -m features.audit
 
 
 # --- raw table transfer helpers ---
