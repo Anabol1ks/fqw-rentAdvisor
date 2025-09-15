@@ -89,6 +89,31 @@ func Run(db *gorm.DB, log *zap.Logger, o Options) error {
 		}
 
 		for _, r := range rows {
+			// Новое правило: пропускаем записи без указанного количества комнат (rooms IS NULL).
+			// Студии (rooms == 0) считаются валидными.
+			if !r.Rooms.Valid {
+				log.Debug("skip listing without rooms", zap.Uint64("id", r.ID), zap.String("source", r.Source))
+				processed++
+				if r.ID > lastID {
+					lastID = r.ID
+				}
+				if o.Limit > 0 && processed >= o.Limit {
+					break
+				}
+				continue
+			}
+			// Новое правило: пропускаем записи без информации о доме — хотя бы без года постройки.
+			if !r.YearBuilt.Valid {
+				log.Debug("skip listing without year_built", zap.Uint64("id", r.ID), zap.String("source", r.Source))
+				processed++
+				if r.ID > lastID {
+					lastID = r.ID
+				}
+				if o.Limit > 0 && processed >= o.Limit {
+					break
+				}
+				continue
+			}
 			if o.Limit > 0 && processed >= o.Limit {
 				break
 			}

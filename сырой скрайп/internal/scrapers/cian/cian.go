@@ -275,6 +275,12 @@ func Run(o Options, log *zap.Logger) error {
 				"jsonld_raw": jld,
 			},
 		}
+
+		// Новое правило: если нет информации о годе постройки, пропускаем эту карточку.
+		if item.YearBuilt == nil {
+			log.Info("skip cian item: no year_built", zap.String("id", externalID), zap.String("url", pageURL))
+			return
+		}
 		log.Info("extracted fields",
 			zap.String("id", externalID),
 			zap.String("deal", cardDealType),
