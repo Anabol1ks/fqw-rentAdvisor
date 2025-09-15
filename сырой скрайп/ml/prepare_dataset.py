@@ -32,7 +32,7 @@ WHERE is_active
 engine = sa.create_engine(PG_DSN)
 df = pd.read_sql(q, engine)
 
-days = int(os.environ.get("DATASET_TEST_DAYS", "14"))
+days = int(os.environ.get("DATASET_TEST_DAYS", "60"))
 
 # simple time-based split: last N days to test
 if not df.empty:

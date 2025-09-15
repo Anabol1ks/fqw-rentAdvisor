@@ -1,0 +1,22 @@
+artifact_path: file:///C:/Users/Grigo/Documents/GitGrisha/fqw-rentAdvisor/%D1%81%D1%8B%D1%80%D0%BE%D0%B9%20%D1%81%D0%BA%D1%80%D0%B0%D0%B9%D0%BF/mlruns/259555840733890555/models/m-5f45afee3fa3443c8fb956d062d4027a/artifacts
+flavors:
+  catboost:
+    catboost_version: 1.2.8
+    code: null
+    data: model.cb
+    model_type: CatBoostRegressor
+    save_format: cbm
+  python_function:
+    data: model.cb
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.catboost
+    python_version: 3.12.5
+mlflow_version: 3.3.2
+model_id: m-5f45afee3fa3443c8fb956d062d4027a
+model_size_bytes: 5782536
+model_uuid: m-5f45afee3fa3443c8fb956d062d4027a
+prompts: null
+run_id: 0cadfba2e6684c49914e56a689f7dd22
+utc_time_created: '2025-09-15 14:39:25.927217'

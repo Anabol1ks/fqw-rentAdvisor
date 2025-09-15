@@ -20,10 +20,20 @@ func RunCity(db *gorm.DB, log *zap.Logger, city string) error {
 		_ = db.WithContext(ctx).Table("ref_metro").Where("city = ?", city).Count(&metroCnt).Error
 	}
 	if metroCnt == 0 {
-		if city == "" {
-			log.Warn("ref_metro is empty — dist_to_metro_m won't be computed")
+		// Доп. проверка: возможно, проблема в кодировке флага --city под Windows (mojibake).
+		// Если ref_metro в принципе не пуст, но по конкретному city записей 0 —
+		// снимаем фильтр и выполняем обогащение для всех городов, чтобы не оставлять всё пустым.
+		var totalMetro int64
+		_ = db.WithContext(ctx).Table("ref_metro").Count(&totalMetro).Error
+		if city != "" && totalMetro > 0 {
+			log.Warn("no metro stations matched for provided city; running without city filter (check console encoding / --city)", zap.String("city", city))
+			city = "" // сбрасываем фильтр
 		} else {
-			log.Warn("no metro stations for city — dist_to_metro_m won't be computed", zap.String("city", city))
+			if city == "" {
+				log.Warn("ref_metro is empty — dist_to_metro_m won't be computed")
+			} else {
+				log.Warn("no metro stations for city — dist_to_metro_m won't be computed", zap.String("city", city))
+			}
 		}
 	}
 
