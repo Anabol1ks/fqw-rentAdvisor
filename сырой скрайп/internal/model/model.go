@@ -37,8 +37,8 @@ type ListingRaw struct {
 	MetroWalkMin     *int
 	ContactPhoneHash string
 	CollectedAt      time.Time `gorm:"not null;default:now()"`
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	CreatedAt        time.Time `gorm:"not null;default:now()"`
+	UpdatedAt        time.Time `gorm:"not null;default:now()"`
 }
 
 func (ListingRaw) TableName() string { return "listing_raw" }
@@ -76,8 +76,8 @@ type Listing struct {
 	LastSeen         *time.Time
 	Lat              *float64
 	Lon              *float64
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	CreatedAt        time.Time `gorm:"not null;default:now()"`
+	UpdatedAt        time.Time `gorm:"not null;default:now()"`
 }
 
 func (Listing) TableName() string { return "listing" }
