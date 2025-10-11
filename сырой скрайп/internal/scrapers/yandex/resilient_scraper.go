@@ -285,12 +285,14 @@ func (rs *ResilientScraper) setupCollector() *colly.Collector {
 func (rs *ResilientScraper) RunResilient() error {
 	rs.log.Info("starting resilient scraping",
 		zap.String("city", rs.opts.City),
+		zap.String("deal", rs.opts.DealType),
 		zap.Int("max_retries", rs.opts.MaxRetries),
 		zap.Duration("base_retry_delay", rs.opts.BaseRetryDelay),
 		zap.Duration("captcha_cooldown", rs.opts.CaptchaCooldown),
 		zap.Int("error_threshold", rs.opts.ErrorThreshold))
 
 	var upserted int64
+	var processedDetails int64
 	var shouldStop int64
 	var stopReason atomic.Value
 	var inFlight int64
@@ -369,7 +371,7 @@ func (rs *ResilientScraper) RunResilient() error {
 
 			// Парсинг детальной страницы
 			if detailRe.MatchString(r.Request.URL.Path) {
-				rs.processDetailPage(r, &upserted)
+				rs.processDetailPage(r, &upserted, &processedDetails)
 			}
 
 			// Проверка лимита
@@ -456,10 +458,19 @@ func (rs *ResilientScraper) RunResilient() error {
 				if emptyStreak > 0 {
 					emptyStreak = 0
 				}
-				rs.log.Info("listing page parsed", zap.String("url", urlStr), zap.Int("detail_links", cnt))
+				rs.log.Info("listing page parsed",
+					zap.String("url", urlStr),
+					zap.Int("detail_links", cnt),
+					zap.Int("pages_visited_next", pagesVisited+1),
+					zap.Int64("new_items_so_far", atomic.LoadInt64(&upserted)),
+					zap.Int64("total_processed_details", atomic.LoadInt64(&processedDetails)))
 			} else {
 				emptyStreak++
-				rs.log.Info("listing page has no detail links", zap.String("url", urlStr), zap.Int("empty_streak", emptyStreak))
+				rs.log.Info("listing page has no detail links",
+					zap.String("url", urlStr),
+					zap.Int("empty_streak", emptyStreak),
+					zap.Int64("new_items_so_far", atomic.LoadInt64(&upserted)),
+					zap.Int64("total_processed_details", atomic.LoadInt64(&processedDetails)))
 			}
 		})
 
@@ -548,9 +559,14 @@ func (rs *ResilientScraper) scheduleRetry(c *colly.Collector, urlStr string, sta
 }
 
 // processDetailPage обрабатывает детальную страницу объявления
-func (rs *ResilientScraper) processDetailPage(r *colly.Response, upserted *int64) {
+func (rs *ResilientScraper) processDetailPage(r *colly.Response, upserted *int64, processedDetails *int64) {
 	if rs.opts.MaxItems > 0 && atomic.LoadInt64(upserted) >= int64(rs.opts.MaxItems) {
 		return
+	}
+
+	// Учитываем любую детальную страницу (вставка или обновление)
+	if processedDetails != nil {
+		atomic.AddInt64(processedDetails, 1)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(r.Body))
@@ -661,6 +677,8 @@ func (rs *ResilientScraper) processDetailPage(r *colly.Response, upserted *int64
 		rs.log.Info("inserted new listing",
 			zap.String("ext_id", item.ExternalID),
 			zap.Int64("total_new", newCount))
+	} else {
+		rs.log.Debug("updated existing listing", zap.String("ext_id", item.ExternalID))
 	}
 }
 
