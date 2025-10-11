@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/Grigo/Documents/GitGrisha/fqw-rentAdvisor/%D1%81%D1%8B%D1%80%D0%BE%D0%B9%20%D1%81%D0%BA%D1%80%D0%B0%D0%B9%D0%BF/mlruns/259555840733890555/models/m-cd4c24866ec5476d885cc58685e98e18/artifacts
+creation_timestamp: 1758105728991
+experiment_id: '259555840733890555'
+last_updated_timestamp: 1758105744515
+model_id: m-cd4c24866ec5476d885cc58685e98e18
+model_type: null
+name: model
+source_run_id: 4acfec2105a347eebe72ae27632373b2
+status: 2
+status_message: null

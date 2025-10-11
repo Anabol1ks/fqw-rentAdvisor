@@ -1,0 +1,22 @@
+artifact_path: file:///C:/Users/Grigo/Documents/GitGrisha/fqw-rentAdvisor/%D1%81%D1%8B%D1%80%D0%BE%D0%B9%20%D1%81%D0%BA%D1%80%D0%B0%D0%B9%D0%BF/mlruns/259555840733890555/models/m-cd4c24866ec5476d885cc58685e98e18/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.12.5
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.5.2
+mlflow_version: 3.3.2
+model_id: m-cd4c24866ec5476d885cc58685e98e18
+model_size_bytes: 16311
+model_uuid: m-cd4c24866ec5476d885cc58685e98e18
+prompts: null
+run_id: 4acfec2105a347eebe72ae27632373b2
+utc_time_created: '2025-09-17 10:42:09.034002'

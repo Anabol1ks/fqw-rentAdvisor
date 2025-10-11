@@ -50,6 +50,11 @@ func (o Options) buildPageURL(page int, log *zap.Logger) string {
 }
 
 func Run(o Options, log *zap.Logger) error {
+	// Используем resilient scraper для более надежного сбора данных
+	return RunWithResilientScraper(o, log)
+}
+
+func RunLegacy(o Options, log *zap.Logger) error {
 	startTS := time.Now()
 	// Снапшоты HTML более не сохраняем
 
@@ -58,8 +63,8 @@ func Run(o Options, log *zap.Logger) error {
 		colly.Async(true),
 		colly.MaxDepth(2),
 	)
-	// Жёсткий таймаут на HTTP-запросы, чтобы аборты/зависшие коннекты быстро завершались
-	c.SetRequestTimeout(clampDuration(15*time.Second, 5*time.Second, 60*time.Second))
+	// Таймаут HTTP-запросов: адаптивно от пейсинга (как в cian)
+	c.SetRequestTimeout(clampDuration(o.DelayMax+10*time.Second, 5*time.Second, 60*time.Second))
 	extensions.RandomUserAgent(c)
 	if o.UseReferer {
 		extensions.Referer(c)
@@ -80,6 +85,20 @@ func Run(o Options, log *zap.Logger) error {
 		}
 	}
 
+	// Стартовый информативный лог (диагностика)
+	log.Info("yandex scrape start",
+		zap.String("deal", o.DealType),
+		zap.String("city", o.City),
+		zap.Int("start_page", o.StartPage),
+		zap.Int("pages", o.Pages),
+		zap.Int("parallel", o.Parallelism),
+		zap.Duration("delay_min", o.DelayMin),
+		zap.Duration("delay_max", o.DelayMax),
+		zap.Int("max_items", o.MaxItems),
+		zap.Int("max_empty_pages", o.MaxEmptyListingPages),
+		zap.Bool("use_referer", o.UseReferer),
+	)
+
 	// Счётчики/состояние
 	var upserted int64 // успешно сохраненные карточки
 	var shouldStop int64
@@ -90,6 +109,8 @@ func Run(o Options, log *zap.Logger) error {
 	currentPage := o.StartPage
 	pagesVisited := 0
 	emptyStreak := 0
+	// Простой ограниченный ретрай для страниц выдачи (по URL)
+	retryCount := make(map[string]int)
 
 	// 1) на страницах выдачи собираем ссылки на детали и считаем их (если не single URL режим)
 	if strings.TrimSpace(o.SingleURL) == "" {
@@ -295,6 +316,8 @@ func Run(o Options, log *zap.Logger) error {
 			// запустить следующую страницу
 			next := currentPage + 1
 			if next >= o.StartPage+max(1, o.Pages) {
+				// достигли последней страницы по лимиту — фиксируем причину
+				stopReason.Store("pages_limit")
 				return
 			}
 			currentPage = next
@@ -332,6 +355,55 @@ func Run(o Options, log *zap.Logger) error {
 		if r != nil && r.Request != nil {
 			msg := fmt.Sprintf("HTTP %d %s: %v", r.StatusCode, r.Request.URL, err)
 			log.Info(msg)
+			// Если это ошибка на странице выдачи (а не детальной карточке) — не "глохнем" молча
+			if strings.TrimSpace(o.SingleURL) == "" && !detailRe.MatchString(r.Request.URL.Path) {
+				urlStr := r.Request.URL.String()
+				// Попробуем 1 раз ретраить страницу выдачи
+				mu.Lock()
+				rc := retryCount[urlStr]
+				if rc < 1 && atomic.LoadInt64(&shouldStop) == 0 {
+					retryCount[urlStr] = rc + 1
+					mu.Unlock()
+					log.Info("retry list page once", zap.String("url", urlStr))
+					// Повторный визит той же страницы
+					_ = c.Visit(urlStr)
+					return
+				}
+				mu.Unlock()
+				// Считаем как пустую и двигаемся дальше по пагинации, чтобы не останавливаться
+				emptyStreak++
+				pagesVisited++
+				log.Info("list page error treated as empty, continue",
+					zap.String("url", urlStr),
+					zap.Int("pages_visited", pagesVisited),
+					zap.Int("empty_streak", emptyStreak),
+				)
+				if o.MaxEmptyListingPages > 0 && emptyStreak >= o.MaxEmptyListingPages {
+					atomic.StoreInt64(&shouldStop, 1)
+					stopReason.Store("empty_listing_pages")
+					return
+				}
+				if o.Pages > 0 && pagesVisited >= max(1, o.Pages) {
+					stopReason.Store("pages_limit")
+					return
+				}
+				if atomic.LoadInt64(&shouldStop) == 1 {
+					return
+				}
+				// Планируем следующую, если не вышли за предел
+				next := currentPage + 1
+				if next < o.StartPage+max(1, o.Pages) {
+					currentPage = next
+					u := o.buildPageURL(currentPage, log)
+					if err := c.Visit(u); err != nil {
+						log.Warn("visit list err: ", zap.Error(err))
+					}
+				} else {
+					// Если сюда попали, то это фактически лимит по страницам
+					stopReason.Store("pages_limit")
+				}
+				return
+			}
 		} else {
 			log.Info("request error", zap.Error(err))
 		}
@@ -352,6 +424,9 @@ func Run(o Options, log *zap.Logger) error {
 	c.Wait()
 	// Финальный сводный лог
 	reason, _ := stopReason.Load().(string)
+	if strings.TrimSpace(reason) == "" {
+		reason = "drained" // очередь запросов исчерпана без явного условия остановки
+	}
 	log.Info("scrape finished",
 		zap.Int64("upserted", atomic.LoadInt64(&upserted)),
 		zap.Int("pages_visited", pagesVisited),

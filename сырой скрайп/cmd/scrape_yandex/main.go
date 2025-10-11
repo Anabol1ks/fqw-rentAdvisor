@@ -46,6 +46,17 @@ func main() {
 		deal       = flag.String("deal", "sale", "sale|rent")
 		cookieFlag = flag.String("cookie", "", "Строка Cookie для realty.yandex.ru (опционально)")
 		useRef     = flag.Bool("use-referer", true, "Включить заголовок Referer для Colly")
+
+		// Новые параметры для resilient scraper
+		maxRetries        = flag.Int("max-retries", 5, "Максимальное количество попыток для каждого URL")
+		baseRetryDelay    = flag.Duration("base-retry-delay", 2*time.Second, "Базовая задержка для exponential backoff")
+		maxRetryDelay     = flag.Duration("max-retry-delay", 5*time.Minute, "Максимальная задержка между попытками")
+		captchaCooldown   = flag.Duration("captcha-cooldown", 10*time.Minute, "Пауза после обнаружения капчи")
+		errorThreshold    = flag.Int("error-threshold", 10, "Количество ошибок подряд для активации защитного режима")
+		protectiveDelay   = flag.Duration("protective-delay", 30*time.Second, "Задержка в защитном режиме")
+		recoveryDelay     = flag.Duration("recovery-delay", 2*time.Minute, "Пауза для восстановления сессии")
+		userAgentRotation = flag.Bool("user-agent-rotation", true, "Ротация User-Agent")
+		legacyMode        = flag.Bool("legacy", false, "Использовать старую версию scraper без resilient функций")
 	)
 	flag.Parse()
 
@@ -75,13 +86,55 @@ func main() {
 		DealType:             mapDealType(*deal),
 	}
 
-	if err := yandex.Run(opts, log); err != nil {
+	var err error
+	if *legacyMode {
+		log.Info("using legacy scraper mode")
+		err = yandex.RunLegacy(opts, log)
+	} else {
+		// Используем resilient scraper
+		resilientOpts := yandex.ResilientOptions{
+			Options:              opts,
+			MaxRetries:           *maxRetries,
+			BaseRetryDelay:       *baseRetryDelay,
+			MaxRetryDelay:        *maxRetryDelay,
+			CaptchaCooldown:      *captchaCooldown,
+			ErrorThreshold:       *errorThreshold,
+			ProtectiveModeDelay:  *protectiveDelay,
+			SessionRecoveryDelay: *recoveryDelay,
+			UserAgentRotation:    *userAgentRotation,
+			ProxyRotation:        parseProxyList(os.Getenv("PROXY_LIST")), // можно передать список прокси через env
+		}
+
+		scraper := yandex.NewResilientScraper(resilientOpts, log)
+		err = scraper.RunResilient()
+	}
+
+	if err != nil {
 		log.Error("scrape run: ", zap.Error(err))
 	}
 
 	// storage.Migrate(db, log)
 	_ = db.WithContext(context.Background()).Exec("SELECT 1").Error
 	storage.CloseDB(db, log)
+}
+
+// parseProxyList парсит список прокси из строки, разделенной запятыми
+func parseProxyList(proxyListStr string) []string {
+	if strings.TrimSpace(proxyListStr) == "" {
+		return []string{}
+	}
+
+	proxies := strings.Split(proxyListStr, ",")
+	result := make([]string, 0, len(proxies))
+
+	for _, proxy := range proxies {
+		proxy = strings.TrimSpace(proxy)
+		if proxy != "" {
+			result = append(result, proxy)
+		}
+	}
+
+	return result
 }
 
 // parseCookieEnv принимает либо готовый заголовок Cookie (одной строкой),

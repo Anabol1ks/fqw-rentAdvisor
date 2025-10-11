@@ -1,0 +1,105 @@
+{
+  "meta": {
+    "n_rows": 1934,
+    "n_train": 1547,
+    "n_test": 387,
+    "cols": [
+      "_split",
+      "area_kitchen",
+      "area_living",
+      "area_total",
+      "city",
+      "condition",
+      "deal_type",
+      "density_500m",
+      "dist_to_center_km",
+      "dist_to_metro_m",
+      "district",
+      "first_seen",
+      "floor",
+      "floors_total",
+      "house_material",
+      "last_seen",
+      "lat",
+      "lon",
+      "metro_station",
+      "metro_walk_min",
+      "price_per_m2",
+      "price_period",
+      "price_rub",
+      "rooms",
+      "year_built"
+    ],
+    "null_share_top": {
+      "condition": 1.0,
+      "price_period": 0.4948293691830403,
+      "area_kitchen": 0.4482936918304033,
+      "area_living": 0.4281282316442606,
+      "house_material": 0.09927611168562564,
+      "metro_walk_min": 0.0015511892450879006,
+      "metro_station": 0.0015511892450879006,
+      "deal_type": 0.0,
+      "lat": 0.0,
+      "last_seen": 0.0,
+      "first_seen": 0.0,
+      "density_500m": 0.0,
+      "dist_to_center_km": 0.0,
+      "dist_to_metro_m": 0.0,
+      "lon": 0.0,
+      "year_built": 0.0,
+      "city": 0.0,
+      "floors_total": 0.0,
+      "floor": 0.0,
+      "area_total": 0.0
+    },
+    "first_seen_min": "2025-09-13 11:09:59.886161+00:00",
+    "first_seen_max": "2025-09-15 11:40:18.444290+00:00",
+    "last_seen_min": "2025-09-15 11:55:13.033207+00:00",
+    "last_seen_max": "2025-09-15 14:08:22.538050+00:00",
+    "duplicates": {}
+  },
+  "winsor_rules": [
+    {
+      "col": "price_rub",
+      "low_q": 0.005,
+      "high_q": 0.995,
+      "lo": 6130.500000000002,
+      "hi": 627409138.2400028,
+      "n": 1934
+    },
+    {
+      "col": "price_per_m2",
+      "low_q": 0.005,
+      "high_q": 0.995,
+      "lo": 129.69675,
+      "hi": 3234982.4917000006,
+      "n": 1934
+    },
+    {
+      "col": "area_total",
+      "low_q": 0.005,
+      "high_q": 0.995,
+      "lo": 12.8995,
+      "hi": 350.1005,
+      "n": 1934
+    },
+    {
+      "col": "dist_to_metro_m",
+      "low_q": 0.005,
+      "high_q": 0.995,
+      "lo": 53.64794482240001,
+      "hi": 6656.12372668,
+      "n": 1934
+    }
+  ],
+  "preview_impact": {
+    "price_rub": 20,
+    "price_per_m2": 20,
+    "area_total": 20,
+    "dist_to_metro_m": 19
+  },
+  "notes": {
+    "log_target_recommended": true,
+    "split_warning": "держи тест по времени последних 1–2 месяцев; для spatial CV группируй по H3/районам"
+  }
+}
