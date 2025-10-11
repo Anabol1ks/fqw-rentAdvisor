@@ -100,7 +100,8 @@ func RunLegacy(o Options, log *zap.Logger) error {
 	)
 
 	// Счётчики/состояние
-	var upserted int64 // успешно сохраненные карточки
+	var upserted int64  // успешно сохраненные НОВЫЕ карточки
+	var processed int64 // все обработанные карточки (новые + обновленные)
 	var shouldStop int64
 	var stopReason atomic.Value // string: "max_items" | "empty_listing_pages" | "pages_limit" | "manual"
 	var inFlight int64          // активные HTTP-запросы (для graceful shutdown наблюдения)
@@ -114,9 +115,35 @@ func RunLegacy(o Options, log *zap.Logger) error {
 
 	// 1) на страницах выдачи собираем ссылки на детали и считаем их (если не single URL режим)
 	if strings.TrimSpace(o.SingleURL) == "" {
+		// Для диагностики - считаем все элементы a на странице
+		c.OnHTML("a", func(e *colly.HTMLElement) {
+			// Считаем только первые 5 элементов для логирования
+			mu.Lock()
+			linkCount := len(listingLinkCount)
+			mu.Unlock()
+			if linkCount < 5 {
+				log.Info("found a element",
+					zap.String("href", e.Attr("href")),
+					zap.String("text", strings.TrimSpace(e.Text)),
+					zap.String("page_url", e.Request.URL.String()))
+			}
+		})
+
 		c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 			href := e.Attr("href")
-			if href == "" || !detailRe.MatchString(href) {
+			if href == "" {
+				return
+			}
+
+			// Отладочное логирование всех ссылок (первые 10)
+			mu.Lock()
+			linkCount := len(listingLinkCount)
+			mu.Unlock()
+			if linkCount < 10 && strings.Contains(href, "/") {
+				log.Info("found link", zap.String("href", href), zap.String("page_url", e.Request.URL.String()), zap.Bool("matches_offer_regex", detailRe.MatchString(href)))
+			}
+
+			if !detailRe.MatchString(href) {
 				return
 			}
 			// учитываем только если это страница выдачи (не детальная)
@@ -132,14 +159,23 @@ func RunLegacy(o Options, log *zap.Logger) error {
 			mu.Lock()
 			listingLinkCount[e.Request.URL.String()]++
 			mu.Unlock()
+
+			log.Info("visiting detail page", zap.String("link", link))
 			_ = c.Visit(link)
 		})
-	}
-
-	// 2) обработчик карточки
+	} // 2) обработчик карточки
 	c.OnResponse(func(r *colly.Response) {
 		// уменьшаем in-flight при любом ответе (включая ранние возвраты)
 		defer atomic.AddInt64(&inFlight, -1)
+
+		// Логируем все ответы для диагностики
+		log.Debug("received response",
+			zap.String("url", r.Request.URL.String()),
+			zap.Int("status", r.StatusCode),
+			zap.String("content_type", r.Headers.Get("Content-Type")),
+			zap.Int("content_length", len(r.Body)),
+			zap.Bool("is_detail_page", detailRe.MatchString(r.Request.URL.Path)))
+
 		// Обнаружение капчи: если редирект/ответ ведёт на showcaptcha — останавливаемся аккуратно
 		if strings.Contains(r.Request.URL.Host, "yandex.") && strings.Contains(r.Request.URL.Path, "showcaptcha") {
 			if atomic.LoadInt64(&shouldStop) == 0 {
@@ -262,6 +298,10 @@ func RunLegacy(o Options, log *zap.Logger) error {
 			log.Warn("upsert raw err", zap.Error(err), zap.String("ext_id", item.ExternalID))
 			return
 		}
+
+		// Увеличиваем счетчик обработанных записей в любом случае
+		atomic.AddInt64(&processed, 1)
+
 		if inserted {
 			log.Info("inserted new", zap.String("ext_id", item.ExternalID))
 			if o.MaxItems > 0 {
@@ -292,6 +332,8 @@ func RunLegacy(o Options, log *zap.Logger) error {
 				zap.String("url", r.Request.URL.String()),
 				zap.Int("detail_links", cnt),
 				zap.Int("pages_visited_next", pagesVisited+1),
+				zap.Int64("new_items_so_far", atomic.LoadInt64(&upserted)),
+				zap.Int64("total_processed_so_far", atomic.LoadInt64(&processed)),
 			)
 			if cnt == 0 {
 				emptyStreak++
@@ -428,7 +470,8 @@ func RunLegacy(o Options, log *zap.Logger) error {
 		reason = "drained" // очередь запросов исчерпана без явного условия остановки
 	}
 	log.Info("scrape finished",
-		zap.Int64("upserted", atomic.LoadInt64(&upserted)),
+		zap.Int64("new_items", atomic.LoadInt64(&upserted)),
+		zap.Int64("total_processed", atomic.LoadInt64(&processed)),
 		zap.Int("pages_visited", pagesVisited),
 		zap.Int("empty_streak_end", emptyStreak),
 		zap.Int64("in_flight_end", atomic.LoadInt64(&inFlight)),

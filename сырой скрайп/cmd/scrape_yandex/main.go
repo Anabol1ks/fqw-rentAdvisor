@@ -19,7 +19,8 @@ import (
 )
 
 func main() {
-	_ = godotenv.Load()
+	_ = godotenv.Load()                 // Загружаем стандартный .env
+	_ = godotenv.Load(".env.resilient") // Загружаем resilient настройки
 	isDev := true
 	if err := logger.Init(isDev); err != nil {
 		panic(err)

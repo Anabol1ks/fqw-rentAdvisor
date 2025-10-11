@@ -321,6 +321,7 @@ func (rs *ResilientScraper) RunResilient() error {
 		if strings.TrimSpace(rs.opts.SingleURL) == "" {
 			c.OnHTML("a[href]", func(e *colly.HTMLElement) {
 				href := e.Attr("href")
+
 				if href == "" || !detailRe.MatchString(href) {
 					return
 				}
@@ -339,9 +340,7 @@ func (rs *ResilientScraper) RunResilient() error {
 				// Запланировать обход детали с retry logic
 				rs.scheduleDetailVisit(c, link)
 			})
-		}
-
-		// Обработчик ответов
+		} // Обработчик ответов
 		c.OnResponse(func(r *colly.Response) {
 			defer atomic.AddInt64(&inFlight, -1)
 			atomic.AddInt64(&rs.session.TotalRequests, 1)
@@ -425,7 +424,8 @@ func (rs *ResilientScraper) RunResilient() error {
 			// Динамическая установка заголовков
 			r.Headers.Set("Accept-Language", "ru-RU,ru;q=0.9,en;q=0.8")
 			r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
-			r.Headers.Set("Accept-Encoding", "gzip, deflate, br")
+			// Внимаем: встроенная декомпрессия Colly поддерживает gzip/deflate; br может вызвать проблемы без brotli
+			r.Headers.Set("Accept-Encoding", "gzip, deflate")
 			r.Headers.Set("DNT", "1")
 			r.Headers.Set("Upgrade-Insecure-Requests", "1")
 
@@ -441,10 +441,35 @@ func (rs *ResilientScraper) RunResilient() error {
 			}
 		})
 
+		// После полного парсинга страницы выдачи логируем, сколько детальных ссылок было найдено
+		c.OnScraped(func(r *colly.Response) {
+			urlStr := r.Request.URL.String()
+			// только для страниц выдачи
+			if detailRe.MatchString(r.Request.URL.Path) {
+				return
+			}
+			mu.Lock()
+			cnt := listingLinkCount[urlStr]
+			mu.Unlock()
+			if cnt > 0 {
+				// сбросить счётчик пустых страниц
+				if emptyStreak > 0 {
+					emptyStreak = 0
+				}
+				rs.log.Info("listing page parsed", zap.String("url", urlStr), zap.Int("detail_links", cnt))
+			} else {
+				emptyStreak++
+				rs.log.Info("listing page has no detail links", zap.String("url", urlStr), zap.Int("empty_streak", emptyStreak))
+			}
+		})
+
 		// Запуск сбора
+		rs.log.Info("running scraping cycle", zap.Int("current_page", currentPage), zap.Int("pages_visited", pagesVisited))
 		err := rs.runScrapingCycle(c, &currentPage, &pagesVisited, &emptyStreak, &shouldStop, &stopReason, &listingLinkCount)
 
+		rs.log.Info("waiting for collector to finish")
 		c.Wait()
+		rs.log.Info("collector finished")
 
 		// Проверка условий завершения
 		if atomic.LoadInt64(&shouldStop) == 1 {
@@ -494,7 +519,7 @@ func (rs *ResilientScraper) RunResilient() error {
 // scheduleDetailVisit планирует посещение детальной страницы
 func (rs *ResilientScraper) scheduleDetailVisit(c *colly.Collector, url string) {
 	if err := c.Visit(url); err != nil {
-		rs.log.Debug("failed to schedule detail visit", zap.String("url", url), zap.Error(err))
+		// Игнорируем "already visited" ошибки как нормальные
 	}
 }
 
@@ -517,7 +542,7 @@ func (rs *ResilientScraper) scheduleRetry(c *colly.Collector, urlStr string, sta
 	go func() {
 		time.Sleep(delay)
 		if err := c.Visit(urlStr); err != nil {
-			rs.log.Debug("retry visit failed", zap.String("url", urlStr), zap.Error(err))
+			// Игнорируем ошибки retry как нормальные
 		}
 	}()
 }
@@ -636,16 +661,20 @@ func (rs *ResilientScraper) processDetailPage(r *colly.Response, upserted *int64
 		rs.log.Info("inserted new listing",
 			zap.String("ext_id", item.ExternalID),
 			zap.Int64("total_new", newCount))
-	} else {
-		rs.log.Debug("updated existing listing", zap.String("ext_id", item.ExternalID))
 	}
 }
 
 // runScrapingCycle выполняет один цикл скрапинга
 func (rs *ResilientScraper) runScrapingCycle(c *colly.Collector, currentPage, pagesVisited, emptyStreak *int, shouldStop *int64, stopReason *atomic.Value, listingLinkCount *map[string]int) error {
 	if strings.TrimSpace(rs.opts.SingleURL) != "" {
+		rs.log.Info("visiting single URL", zap.String("url", rs.opts.SingleURL))
 		return c.Visit(rs.opts.SingleURL)
 	}
+
+	rs.log.Info("starting scraping cycle",
+		zap.Int("start_page", rs.opts.StartPage),
+		zap.Int("pages", rs.opts.Pages),
+		zap.Int("current_page", *currentPage))
 
 	// Планируем обход страниц выдачи
 	for page := *currentPage; page < rs.opts.StartPage+rs.opts.Pages; page++ {
@@ -653,7 +682,9 @@ func (rs *ResilientScraper) runScrapingCycle(c *colly.Collector, currentPage, pa
 			break
 		}
 
-		pageURL := rs.opts.buildPageURL(page, rs.log)
+		pageURL := rs.opts.Options.buildPageURL(page, rs.log)
+		rs.log.Info("visiting listing page", zap.String("url", pageURL), zap.Int("page", page))
+
 		if err := c.Visit(pageURL); err != nil {
 			rs.log.Warn("failed to visit listing page", zap.String("url", pageURL), zap.Error(err))
 			continue
