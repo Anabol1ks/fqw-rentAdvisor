@@ -41,8 +41,8 @@ type Options struct {
 	DealType             string // "sale" | "rent_long" | "rent_daily"
 }
 
-// Распознаём оба формата детальных ссылок и допускаем отсутствие завершающего слэша/наличие параметров
-var detailRe = regexp.MustCompile(`/(?:offer/\d+|st-[^/]+-\d+)(?:[/?#]|$)`)
+// Детальная страница объявления ТОЛЬКО формата /offer/<id> (агрегаторы вида /st-... - игнорируем)
+var detailRe = regexp.MustCompile(`/(?:offer/\d+)(?:[/?#]|$)`)
 
 func (o Options) buildPageURL(page int, log *zap.Logger) string {
 	u := strings.ReplaceAll(o.StartURLTmpl, "{city}", url.PathEscape(o.City))
