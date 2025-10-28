@@ -2,11 +2,16 @@
 # 	.venv\Scripts\activate
 # $env:PYTHONPATH = ".\src\"
 
-# выгрузка из бд
+# выгрузка из бд аренды
 db_export_rent:
 	python -m realval db export \
 		--sql-file sql/export_listings_rent.sql \
 		--out data/raw/listings.parquet
+		
+db_export_sale:
+	python -m realval db export \
+		--sql-file sql/export_listings_sale.sql \
+		--out data/raw/listings_sale.parquet
 
 # предобработка
 ingest:
@@ -27,7 +32,7 @@ split:
 		--train-out data/features/train.parquet \
 		--valid-out data/features/valid.parquet \
 		--time-col first_seen \
-		--valid-days 7
+		--valid-days 15
 
 train:
 	python -m realval train \

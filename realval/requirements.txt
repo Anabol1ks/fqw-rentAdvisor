@@ -7,7 +7,7 @@ lightgbm>=4.3
 joblib>=1.4
 h3==3.7.7
 python-dateutil>=2.9
-SQLAlchemy>=2.0
+sqlalchemy>=2.0
 psycopg2-binary>=2.9
 python-dotenv>=1.0
 geopy>=2.4
