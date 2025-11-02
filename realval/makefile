@@ -49,3 +49,10 @@ predict-one:
 		--model-path models/artefacts/rent_lgbm.joblib \
 		--input-json sample_object.json \
 		--out models/reports/predict_sample.json
+
+predict-address:
+	python -m realval predict-address \
+		--model-path models/artefacts/rent_lgbm.joblib \
+		--params .\sample_object.json \
+		--geocode-cache-ttl-days 180 \
+		--out models/reports/predict_address.json

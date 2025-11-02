@@ -3,12 +3,20 @@ import json
 from pathlib import Path
 from typing import Optional, List, Tuple
 
+import re
+from datetime import datetime, timedelta, timezone
+
 import os
 import sqlalchemy as sa
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from dotenv import load_dotenv
+import time
+import math
+import requests
+from tenacity import retry, wait_fixed, stop_after_attempt
+from shapely import wkb as shp_wkb
 
 
 import typer
@@ -90,7 +98,229 @@ def _ensure_h3(df: pd.DataFrame, res: int = 7) -> pd.DataFrame:
         df[col] = df.apply(enc, axis=1)
     return df
 
+
+_ADDR_SPACE_RE = re.compile(r"\s+")
+
+def _canon_addr(s: Optional[str]) -> str:
+    """Упрощённая нормализация адреса для ключа кэша."""
+    if not s:
+        return ""
+    s = s.replace("ё", "е").strip().lower()
+    s = _ADDR_SPACE_RE.sub(" ", s)
+    # можно дополнить удалением "г.", "город", запятых и т.п., если нужно
+    return s
+
+
+CITY_CENTERS = {
+    "Москва": (55.7558, 37.6173),
+}
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    R = 6371.0
+    p = np.deg2rad(lat2 - lat1)
+    l = np.deg2rad(lon2 - lon1)
+    a = np.sin(p/2)**2 + np.cos(np.deg2rad(lat1))*np.cos(np.deg2rad(lat2))*np.sin(l/2)**2
+    return 2 * R * np.arcsin(np.sqrt(a))
+
+def _walk_minutes_from_meters(meters: float, speed_m_per_min: float = 80.0) -> int:
+    if meters is None or np.isnan(meters):
+        return None
+    return int(math.ceil(meters / speed_m_per_min))
+
+def _load_metro_points(engine, city: str = "Москва") -> pd.DataFrame:
+    # пробуем PostGIS-удобный путь; если не сработает — парсим WKB в Python
+    try:
+        sql = """
+            SELECT name,
+                   ST_Y(geom::geometry) AS lat,
+                   ST_X(geom::geometry) AS lon
+            FROM ref_metro
+            WHERE city = %(city)s
+        """
+        return pd.read_sql(sql, engine, params={"city": city})
+    except Exception:
+        df = pd.read_sql(
+            "SELECT name, geom FROM ref_metro WHERE city = %(city)s",
+            engine,
+            params={"city": city},
+        )
+        def _to_xy(wkb_hex: str):
+            try:
+                g = shp_wkb.loads(bytes.fromhex(wkb_hex), hex=True)
+                return g.y, g.x
+            except Exception:
+                return np.nan, np.nan
+        latlon = df["geom"].apply(_to_xy)
+        df["lat"] = latlon.apply(lambda t: t[0])
+        df["lon"] = latlon.apply(lambda t: t[1])
+        return df[["name", "lat", "lon"]]
+
+def _nearest_metro(lat: float, lon: float, metros: pd.DataFrame) -> Tuple[Optional[str], Optional[float], Optional[int]]:
+    if metros.empty or any(pd.isna([lat, lon])):
+        return None, None, None
+    # векторно считаем расстояния
+    d_km = _haversine_km(lat, lon, metros["lat"].values, metros["lon"].values)
+    idx = int(np.nanargmin(d_km))
+    name = metros.iloc[idx]["name"]
+    dist_m = float(d_km[idx] * 1000.0)
+    walk_min = _walk_minutes_from_meters(dist_m)
+    return name, dist_m, walk_min
+
+def _density_500m(engine, lat: float, lon: float, days_back: int = 90) -> Optional[int]:
+    try:
+        sql = """
+        SELECT COUNT(*) AS cnt
+        FROM listing_master
+        WHERE is_active
+                    AND last_seen >= NOW() - (%(days)s || ' days')::interval
+          AND ST_DWithin(
+                                ST_SetSRID(ST_MakePoint(%(lon)s, %(lat)s), 4326)::geography,
+                geom::geography,
+                500
+              )
+        """
+        row = pd.read_sql(sql, engine, params={"lat": lat, "lon": lon, "days": days_back})
+        return int(row.iloc[0]["cnt"])
+    except Exception:
+        return None
+
+
 # ---------- Commands ----------
+
+@retry(wait=wait_fixed(1), stop=stop_after_attempt(3))
+def _nominatim_geocode(address: str, city: str = "Москва") -> Optional[Tuple[float, float]]:
+    """
+    Геокодирование с приоритизацией нужного города.
+    1) Пытаемся структурированным поиском (street+city, RU) с несколькими кандидатами.
+    2) Выбираем ближайшего к центру города кандидата (если CITY_CENTERS известен).
+    3) Фолбэк: простой q-поиск по строке.
+    """
+    headers = {
+        "User-Agent": "realval/0.1 (+grigorogannisyan.12@gmail.com)",
+        "Accept-Language": "ru",
+    }
+    url = "https://nominatim.openstreetmap.org/search"
+
+    def _pick_best(candidates: list) -> Optional[Tuple[float, float]]:
+        if not candidates:
+            return None
+        # если знаем центр города — берём ближайшего к нему
+        center = CITY_CENTERS.get(city)
+        if center:
+            best = None
+            best_d = None
+            for it in candidates:
+                try:
+                    lat = float(it.get("lat"))
+                    lon = float(it.get("lon"))
+                except Exception:
+                    continue
+                d = _haversine_km(center[0], center[1], lat, lon)
+                if best is None or d < best_d:
+                    best = (lat, lon)
+                    best_d = d
+            return best
+        # иначе — первый из списка
+        try:
+            return float(candidates[0]["lat"]), float(candidates[0]["lon"])
+        except Exception:
+            return None
+
+    # 1) Структурированный запрос с фильтром по городу
+    try:
+        params = {
+            "street": address,
+            "city": city,
+            "countrycodes": "ru",
+            "format": "jsonv2",
+            "addressdetails": 1,
+            "limit": 5,
+        }
+        r = requests.get(url, params=params, headers=headers, timeout=20)
+        r.raise_for_status()
+        data = r.json() or []
+        # Отфильтруем по совпадению города в ответе, если есть addressdetails
+        filtered = []
+        for it in data:
+            addr = it.get("address") or {}
+            addr_city = addr.get("city") or addr.get("town") or addr.get("state") or ""
+            if city and isinstance(addr_city, str) and city.lower() in addr_city.lower():
+                filtered.append(it)
+        picked = _pick_best(filtered or data)
+        if picked:
+            return picked
+    except Exception:
+        pass
+
+    # 2) Фолбэк: обычный q-поиск, но подмешиваем город, если он ещё не включён
+    try:
+        addr_str = address or ""
+        city_str = city or ""
+        q = f"{city_str}, {addr_str}" if city_str and city_str.lower() not in addr_str.lower() else addr_str
+        params = {"q": q, "format": "jsonv2", "limit": 5}
+        r = requests.get(url, params=params, headers=headers, timeout=20)
+        r.raise_for_status()
+        data = r.json() or []
+        picked = _pick_best(data)
+        if picked:
+            return picked
+    except Exception:
+        pass
+
+    return None
+
+def _ensure_geocode_cache_table(engine) -> None:
+    sql = """
+    CREATE TABLE IF NOT EXISTS geocode_cache (
+      city         text        NOT NULL,
+      address_norm text        NOT NULL,
+      lat          double precision NOT NULL,
+      lon          double precision NOT NULL,
+      created_at   timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (city, address_norm)
+    );
+    CREATE INDEX IF NOT EXISTS geocode_cache_created_at_idx ON geocode_cache (created_at DESC);
+    """
+    with engine.begin() as conn:
+        conn.exec_driver_sql(sql)
+
+def _get_cached_geocode(engine, city: str, address: str, max_age_days: Optional[int] = 180) -> Optional[Tuple[float, float]]:
+    key_city = city.strip()
+    key_addr = _canon_addr(address)
+    sql = """
+      SELECT lat, lon, created_at
+      FROM geocode_cache
+      WHERE city = %(city)s AND address_norm = %(address)s
+      LIMIT 1
+    """
+    try:
+        row = pd.read_sql(sql, engine, params={"city": key_city, "address": key_addr})
+        if row.empty:
+            return None
+        lat, lon, created_at = float(row.iloc[0]["lat"]), float(row.iloc[0]["lon"]), row.iloc[0]["created_at"]
+        if max_age_days is not None and isinstance(created_at, (pd.Timestamp, datetime)):
+            if isinstance(created_at, pd.Timestamp):
+                created_at = created_at.to_pydatetime()
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - created_at > timedelta(days=max_age_days):
+                return None
+        return lat, lon
+    except Exception:
+        return None
+
+def _put_cached_geocode(engine, city: str, address: str, lat: float, lon: float) -> None:
+    key_city = city.strip()
+    key_addr = _canon_addr(address)
+    sql = """
+      INSERT INTO geocode_cache (city, address_norm, lat, lon, created_at)
+      VALUES (%(city)s, %(address)s, %(lat)s, %(lon)s, NOW())
+      ON CONFLICT (city, address_norm)
+      DO UPDATE SET lat = EXCLUDED.lat, lon = EXCLUDED.lon, created_at = NOW();
+    """
+    with engine.begin() as conn:
+        conn.exec_driver_sql(sql, params={"city": key_city, "address": key_addr, "lat": lat, "lon": lon})
+
 
 @app.command()
 def ingest(
@@ -510,3 +740,217 @@ def db_export(
         total = len(df)
 
     typer.echo(f"[db export] saved {out} rows={total}")
+
+
+@app.command("predict-address")
+def predict_address(
+    model_path: Path = typer.Option(..., help="путь к .joblib"),
+    # Можно передать параметры квартиры через флаги или целиком файлом JSON
+    params: Optional[Path] = typer.Option(None, "--params", "--input-json", help="JSON с параметрами квартиры (address, city, rooms, area_total, ...). Если указан, перекрывает соответствующие флаги."),
+    address: Optional[str] = typer.Option(None, help="Адрес (улица, дом, квартира не обязательно)"),
+    city: str = typer.Option("Москва"),
+    rooms: Optional[int] = typer.Option(None, help="0=студия, 1, 2, ..."),
+    area_total: Optional[float] = typer.Option(None, help="Общая площадь, м²"),
+    area_living: Optional[float] = typer.Option(None, help="Жилая площадь, м²"),
+    area_kitchen: Optional[float] = typer.Option(None, help="Площадь кухни, м²"),
+    floor: Optional[int] = typer.Option(None),
+    floors_total: Optional[int] = typer.Option(None),
+    year_built: Optional[int] = typer.Option(None),
+    house_material: Optional[str] = typer.Option(None),
+    condition: Optional[str] = typer.Option(None),
+    dsn: Optional[str] = typer.Option(None, help="DSN PostgreSQL для ref_metro/плотности (иначе возьмем из POSTGRES_DSN_URL)"),
+    out: Optional[Path] = typer.Option(None, help="Куда сохранить результат (.json)"),
+    geocode_cache_ttl_days: int = typer.Option(365, help="Через сколько дней запись кэша считать устаревшей"),
+    no_geocode_cache: bool = typer.Option(False, help="Не использовать кэш геокодера вообще"),
+
+):
+    """
+    Сценарий для пользователя: вводит адрес и базовые параметры — мы сами геокодим,
+    достраиваем геофичи (метро/центр/плотность), формируем фичи и считаем прогноз.
+
+    Можно передать параметры либо флагами, либо одним JSON-файлом через --params/--input-json
+    со структурой вида:
+    {
+      "address": "улица Пушкина, дом Колотушкина",
+      "city": "Москва",
+      "rooms": 2,
+      "area_total": 60,
+      "area_living": 35,
+      "area_kitchen": 10,
+      "floor": 5,
+      "floors_total": 12,
+      "year_built": 2008,
+      "house_material": "монолит",
+      "condition": "хорошее",
+    }
+    """
+    artefact = load(model_path)
+    preproc = artefact["preprocessor"]
+    expected_num = artefact.get("numeric_features", [])
+    expected_cat = artefact.get("categorical_features", [])
+    target = artefact["target"]
+    log_target = artefact["log_target"]
+
+    # 0) Параметры квартиры из файла (если указан)
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    if params is not None:
+        try:
+            obj_in = json.loads(Path(params).read_text(encoding="utf-8"))
+            if not isinstance(obj_in, dict):
+                raise ValueError("Ожидается JSON-объект (dict) с полями квартиры")
+        except Exception as e:
+            raise typer.BadParameter(f"Не удалось прочитать --params: {e}")
+
+        address = obj_in.get("address", address)
+        city = obj_in.get("city", city)
+        rooms = obj_in.get("rooms", rooms)
+        area_total = obj_in.get("area_total", area_total)
+        area_living = obj_in.get("area_living", area_living)
+        area_kitchen = obj_in.get("area_kitchen", area_kitchen)
+        floor = obj_in.get("floor", floor)
+        floors_total = obj_in.get("floors_total", floors_total)
+        year_built = obj_in.get("year_built", year_built)
+        house_material = obj_in.get("house_material", house_material)
+        condition = obj_in.get("condition", condition)
+        lat = obj_in.get("lat")
+        lon = obj_in.get("lon")
+
+    # Валидация ключевых полей
+    if rooms is None:
+        raise typer.BadParameter("Не задано количество комнат (rooms). Укажи флагом или в --params")
+    if area_total is None:
+        raise typer.BadParameter("Не задана общая площадь (area_total). Укажи флагом или в --params")
+
+    # 1) Геокод (если lat/lon не заданы)
+    if lat is None or lon is None:
+        if not address:
+            raise typer.BadParameter("Не задан адрес. Укажи --address или параметр 'address' в --params")
+
+        # Инициализируем подключение (если есть DSN) и таблицу кэша
+        dsn = dsn or os.environ.get("POSTGRES_DSN_URL")
+        engine = sa.create_engine(dsn) if dsn else None
+        if engine and not no_geocode_cache:
+            try:
+                _ensure_geocode_cache_table(engine)
+            except Exception:
+                pass
+
+        # 1.1 Пробуем кэш
+        if engine and not no_geocode_cache:
+            cached = _get_cached_geocode(engine, city=city, address=address, max_age_days=geocode_cache_ttl_days)
+            if cached:
+                lat, lon = cached
+
+        # 1.2 Если промах кэша — Nominatim
+        if lat is None or lon is None:
+            coords = _nominatim_geocode(address, city=city)
+            if not coords:
+                raise typer.BadParameter("Адрес не найден геокодером. Попробуй уточнить формулировку.")
+            lat, lon = coords
+            # 1.3 Запишем в кэш
+            if engine and not no_geocode_cache:
+                try:
+                    _put_cached_geocode(engine, city=city, address=address, lat=lat, lon=lon)
+                except Exception:
+                    pass
+
+    # 2) Геофичи
+    center = CITY_CENTERS.get(city, CITY_CENTERS["Москва"])
+    dist_to_center_km = _haversine_km(lat, lon, center[0], center[1])
+
+    # 3) Метро и (опционально) плотность
+    dsn = dsn or os.environ.get("POSTGRES_DSN_URL")
+    metro_name = None
+    dist_to_metro_m = None
+    metro_walk_min = None
+    density_500m = None
+
+    if dsn:
+        engine = sa.create_engine(dsn)
+        metros = _load_metro_points(engine, city=city)
+        metro_name, dist_to_metro_m, metro_walk_min = _nearest_metro(lat, lon, metros)
+        density_500m = _density_500m(engine, lat, lon, days_back=90)
+
+    # 4) Производные фичи
+    now_year = pd.Timestamp.utcnow().year
+    age_house = (now_year - year_built) if year_built else None
+
+    # 5) Собираем «объект»
+    obj = {
+        "deal_type": "rent_long",
+        "city": city,
+        "address_norm": address,
+        "rooms": rooms,
+        "area_total": area_total,
+        "area_living": area_living,
+        "area_kitchen": area_kitchen,
+        "floor": floor,
+        "floors_total": floors_total,
+        "year_built": year_built,
+        "house_material": house_material or "",
+        "condition": condition or "",
+        "lat": lat,
+        "lon": lon,
+        "dist_to_center_km": dist_to_center_km,
+        "dist_to_metro_m": dist_to_metro_m,
+        "metro_station": metro_name or "",
+        "metro_walk_min": metro_walk_min,
+        "density_500m": density_500m,
+        "first_seen": pd.Timestamp.utcnow(),   # не влияет на предикт, но полезно для унификации
+        "last_seen": pd.Timestamp.utcnow(),
+        "age_house": age_house,
+    }
+
+    df = pd.DataFrame([obj])
+    df = _coerce_types(df)
+    df = _ensure_h3(df, res=7)
+
+    # 6) Выравнивание под схему фич и заполнение пропусков
+    df = _align_frame_to_schema(df, expected_num, expected_cat)
+    df = _fill_na_reasonable(df, expected_num, expected_cat)
+
+    X = df.copy()
+    if target in X.columns:
+        X = X.drop(columns=[target], errors="ignore")
+    X = preproc.transform(X)
+
+    median_pipe = artefact["median"]
+    q10_pipe = artefact.get("q10")
+    q90_pipe = artefact.get("q90")
+
+    def _inv(v): return float(np.exp(v)) if log_target else float(v)
+
+    y_hat = _inv(median_pipe.predict(X)[0])
+    pi_low = pi_high = None
+    if q10_pipe is not None and q90_pipe is not None:
+        pi_low = _inv(q10_pipe.predict(X)[0])
+        pi_high = _inv(q90_pipe.predict(X)[0])
+
+    # упорядочим
+    if pi_low is not None and pi_high is not None:
+        low, mid, high = sorted([pi_low, y_hat, pi_high])
+        if not (low <= y_hat <= high):
+            if y_hat < low:
+                low, high = y_hat, high
+            elif y_hat > high:
+                low, high = low, y_hat
+        pi_low, pi_high = low, high
+
+    result = {
+        "input": {"address": address, "city": city, "rooms": rooms, "area_total": area_total,
+                  "area_living": area_living, "area_kitchen": area_kitchen,
+                  "floor": floor, "floors_total": floors_total, "year_built": year_built,
+                  "house_material": house_material, "condition": condition},
+        "enriched": {"lat": lat, "lon": lon, "dist_to_center_km": dist_to_center_km,
+                     "metro_station": metro_name, "dist_to_metro_m": dist_to_metro_m,
+                     "metro_walk_min": metro_walk_min, "density_500m": density_500m},
+        "prediction": y_hat, "pi_low": pi_low, "pi_high": pi_high
+    }
+
+    if out:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        typer.echo(f"[predict-address] -> {out}")
+    else:
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2))

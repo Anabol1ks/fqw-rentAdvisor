@@ -1,0 +1,27 @@
+{
+  "input": {
+    "address": "Волоколамское шоссе, 10",
+    "city": "Москва",
+    "rooms": 2,
+    "area_total": 53,
+    "area_living": null,
+    "area_kitchen": null,
+    "floor": 7,
+    "floors_total": 10,
+    "year_built": 1957,
+    "house_material": "кирпич",
+    "condition": null
+  },
+  "enriched": {
+    "lat": 55.8092148,
+    "lon": 37.4970602,
+    "dist_to_center_km": 9.58145846320499,
+    "metro_station": "Стрешнево",
+    "dist_to_metro_m": 799.0568312838344,
+    "metro_walk_min": 10,
+    "density_500m": 0
+  },
+  "prediction": 101623.89992590885,
+  "pi_low": 51984.26770335787,
+  "pi_high": 149259.5239457539
+}
