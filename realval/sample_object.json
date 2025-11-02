@@ -1,10 +1,14 @@
 {
 	"city": "Москва",
-	"address": "Волоколамское шоссе, 10",
+	"address": "Очаковское шоссе, 5к2",
 	"rooms": 2,
-	"area_total": 53,
-	"floor": 7,
-	"floors_total": 10,
-	"year_built": 1957,
-	"house_material": "кирпич"
+	"area_total": 50,
+	"area_living": 30,
+	"area_kitchen": 14, 
+	"floor": 18,
+	"floors_total": 33,
+	"year_built": 2024,
+	"house_material": "монолит",
+	"_comment": "цена 100 000"
 }
+

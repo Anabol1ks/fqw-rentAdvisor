@@ -38,6 +38,149 @@ app = typer.Typer(help="RealVal — консольный прототип ана
 
 # ---------- IO helpers ----------
 
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+
+@retry(wait=wait_fixed(1), stop=stop_after_attempt(3))
+def _overpass_nearby_building(lat: float, lon: float, radius_m: int = 100) -> Optional[dict]:
+    """
+    Ищем ближайшее здание в радиусе (way/relation с building=*) и возвращаем его tags + geometry center.
+    """
+    headers = {
+        "User-Agent": "realval/0.1 (+grigorogannisyan.12@gmail.com)",
+    }
+    # Берем несколько кандидатов и выберем по расстоянию
+    q = f"""
+    [out:json][timeout:25];
+    (
+      way(around:{radius_m},{lat},{lon})["building"];
+      relation(around:{radius_m},{lat},{lon})["building"];
+    );
+    out tags center 10;
+    """
+    r = requests.post(OVERPASS_URL, data=q.encode("utf-8"), headers=headers, timeout=30)
+    r.raise_for_status()
+    js = r.json()
+    els = js.get("elements", []) if isinstance(js, dict) else []
+    if not els:
+        return None
+    # выбрать ближайшее по центру:
+    def _dkm(e):
+        clat = e.get("center", {}).get("lat")
+        clon = e.get("center", {}).get("lon")
+        if clat is None or clon is None:
+            return 1e9
+        return _haversine_km(lat, lon, float(clat), float(clon))
+    els.sort(key=_dkm)
+    best = els[0]
+    tags = best.get("tags", {}) or {}
+    # нормализация интересующих полей
+    floors = None
+    for key in ("building:levels", "levels"):
+        val = tags.get(key)
+        if val is not None:
+            try:
+                floors = int(float(val))
+                break
+            except Exception:
+                pass
+
+    year_built = None
+    for key in ("start_date", "year_of_construction", "building:year_built"):
+        val = tags.get(key)
+        if val:
+            # вытащим 4-значный год
+            import re
+            m = re.search(r"(18|19|20)\d{2}", str(val))
+            if m:
+                year_built = int(m.group(0))
+                break
+
+    material = tags.get("building:material") or tags.get("material")
+
+    return {
+        "floors_total": floors,
+        "year_built": year_built,
+        "house_material": material,
+        "raw_tags": tags,
+        "source": "osm_overpass",
+    }
+
+def _ensure_building_cache_table(engine) -> None:
+    sql = """
+    CREATE TABLE IF NOT EXISTS building_cache (
+      city          text        NOT NULL,
+      address_norm  text        NOT NULL,
+      lat           double precision NOT NULL,
+      lon           double precision NOT NULL,
+      floors_total  integer,
+      year_built    integer,
+      house_material text,
+      source        text,
+      raw_tags      jsonb,
+      created_at    timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (city, address_norm)
+    );
+    CREATE INDEX IF NOT EXISTS building_cache_created_at_idx ON building_cache (created_at DESC);
+    """
+    with engine.begin() as conn:
+        conn.exec_driver_sql(sql)
+
+def _get_cached_building(engine, city: str, address: str, max_age_days: Optional[int] = 365) -> Optional[dict]:
+    key_city = city.strip()
+    key_addr = _canon_addr(address)
+    sql = """
+      SELECT lat, lon, floors_total, year_built, house_material, source, raw_tags, created_at
+      FROM building_cache
+      WHERE city = %(city)s AND address_norm = %(address)s
+      LIMIT 1
+    """
+    try:
+        row = pd.read_sql(sql, engine, params={"city": key_city, "address": key_addr})
+        if row.empty:
+            return None
+        rec = row.iloc[0].to_dict()
+        if max_age_days is not None:
+            ts = rec.get("created_at")
+            if isinstance(ts, pd.Timestamp):
+                ts = ts.to_pydatetime()
+            from datetime import datetime, timezone, timedelta
+            if ts and datetime.now(timezone.utc) - ts.replace(tzinfo=timezone.utc) > timedelta(days=max_age_days):
+                return None
+        return rec
+    except Exception:
+        return None
+
+def _put_cached_building(engine, city: str, address: str, lat: float, lon: float, enriched: dict) -> None:
+    key_city = city.strip()
+    key_addr = _canon_addr(address)
+    sql = """
+      INSERT INTO building_cache (city, address_norm, lat, lon, floors_total, year_built, house_material, source, raw_tags, created_at)
+      VALUES (%(city)s, %(address)s, %(lat)s, %(lon)s, %(floors)s, %(year)s, %(mat)s, %(src)s, %(raw)s, NOW())
+      ON CONFLICT (city, address_norm)
+      DO UPDATE SET
+        lat = EXCLUDED.lat,
+        lon = EXCLUDED.lon,
+        floors_total = EXCLUDED.floors_total,
+        year_built = EXCLUDED.year_built,
+        house_material = EXCLUDED.house_material,
+        source = EXCLUDED.source,
+        raw_tags = EXCLUDED.raw_tags,
+        created_at = NOW();
+    """
+    params = {
+        "city": key_city,
+        "address": key_addr,
+        "lat": lat, "lon": lon,
+        "floors": enriched.get("floors_total"),
+        "year": enriched.get("year_built"),
+        "mat": enriched.get("house_material"),
+        "src": enriched.get("source"),
+        "raw": json.dumps(enriched.get("raw_tags", {}), ensure_ascii=False),
+    }
+    with engine.begin() as conn:
+        conn.exec_driver_sql(sql, params=params)
+
+
 SUPPORT_EXT_READ = {".parquet", ".csv", ".json"}
 SUPPORT_EXT_WRITE = {".parquet", ".csv"}
 
@@ -442,13 +585,27 @@ def _fill_na_reasonable(df: pd.DataFrame, numeric_cols: List[str], cat_cols: Lis
             df[c] = df[c].fillna("")
     return df
 
+def _fill_na_from_stats(df, num_cols, cat_cols, stats_num, stats_cat):
+    df = df.copy()
+    for c in num_cols:
+        v = stats_num.get(c)
+        if v is not None:
+            df[c] = df[c].fillna(v)
+    for c in cat_cols:
+        v = stats_cat.get(c, "")
+        df[c] = df[c].fillna(v if v is not None else "")
+    return df
+
+
 
 def _build_preprocessor(df: pd.DataFrame, target_col: str) -> Tuple[ColumnTransformer, List[str], List[str]]:
     # Определяем числовые/категориальные фичи
     drop_cols = {
         target_col, "id", "url", "title", "description", "address_norm", "first_seen",
-        "last_seen", "created_at", "updated_at", "geom", "contact_phone_hash"
-    } & set(df.columns)
+        "last_seen", "created_at", "updated_at", "geom", "contact_phone_hash",
+        # НОВОЕ: жёстко выключаем все price_* кроме target
+        "price_per_m2", "price_per_m2_calc"
+} & set(df.columns)
     feat_df = df.drop(columns=list(drop_cols), errors="ignore")
     y = None
     if target_col in df.columns:
@@ -470,12 +627,17 @@ def _build_preprocessor(df: pd.DataFrame, target_col: str) -> Tuple[ColumnTransf
 def _fit_model(
     X: pd.DataFrame, y: pd.Series, objective: str = "regression", alpha: Optional[float] = None
 ) -> Pipeline:
+    X = np.asarray(X)
     params = dict(
         n_estimators=1200,
         learning_rate=0.03,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        num_leaves=64,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        num_leaves=63,
+        min_child_samples=20,
+        min_split_gain=0.0,
+        reg_lambda=1.0,
+        reg_alpha=0.0,
         n_jobs=-1,
         random_state=42,
     )
@@ -540,6 +702,31 @@ def train_fit(
 
     # fit preprocesser на train
     preproc.fit(X_tr_raw)
+    
+    # Импутационные статистики
+    try:
+        num_cols_list = preproc.transformers_[0][2] if preproc.transformers_ else []
+    except Exception:
+        num_cols_list = []
+    num_stats = {}
+    if num_cols_list:
+        try:
+            num_stats = X_tr_raw[num_cols_list].median(numeric_only=True).to_dict()
+        except Exception:
+            num_stats = {}
+    cat_cols_list = []
+    try:
+        if len(preproc.transformers_) > 1:
+            cat_cols_list = preproc.transformers_[1][2]
+    except Exception:
+        cat_cols_list = []
+    cat_stats = {}
+    for c in cat_cols_list:
+        try:
+            cat_stats[c] = X_tr_raw[c].mode(dropna=False).iloc[0]
+        except Exception:
+            cat_stats[c] = ""
+    
     X_tr = preproc.transform(X_tr_raw)
     X_va = preproc.transform(X_va_raw)
 
@@ -570,6 +757,8 @@ def train_fit(
         "numeric_features": num_cols,
         "categorical_features": cat_cols,
         "metrics": {"valid_mae": float(mae), "valid_rmse": float(rmse)},
+        "impute_num": num_stats,
+        "impute_cat": cat_stats,
     }
 
     model_out.parent.mkdir(parents=True, exist_ok=True)
@@ -604,6 +793,10 @@ def predict_one(
     # гарантируем h3 и приведение типов
     df = _ensure_h3(df, res=7)
     df = _align_frame_to_schema(df, expected_num, expected_cat)
+    df = _fill_na_from_stats(df, expected_num, expected_cat,
+                             artefact.get("impute_num", {}),
+                             artefact.get("impute_cat", {}))
+    # Фолбэк на случай отсутствующих статистик/новых колонок
     df = _fill_na_reasonable(df, expected_num, expected_cat)
 
     # формируем X в том же виде, как на трейне
@@ -762,6 +955,9 @@ def predict_address(
     out: Optional[Path] = typer.Option(None, help="Куда сохранить результат (.json)"),
     geocode_cache_ttl_days: int = typer.Option(365, help="Через сколько дней запись кэша считать устаревшей"),
     no_geocode_cache: bool = typer.Option(False, help="Не использовать кэш геокодера вообще"),
+    building_cache_ttl_days: int = typer.Option(365, help="TTL записи building_cache"),
+    no_building_cache: bool = typer.Option(False, help="Не использовать кэш building_cache"),
+    overpass_radius_m: int = typer.Option(120, help="Поисковый радиус для Overpass"),
 
 ):
     """
@@ -872,6 +1068,45 @@ def predict_address(
         metro_name, dist_to_metro_m, metro_walk_min = _nearest_metro(lat, lon, metros)
         density_500m = _density_500m(engine, lat, lon, days_back=90)
 
+    engine = sa.create_engine(dsn) if dsn else None
+    if engine and not no_building_cache:
+        try:
+            _ensure_building_cache_table(engine)
+        except Exception:
+            pass
+
+    cache_bld = None
+    if engine and not no_building_cache:
+        cache_bld = _get_cached_building(engine, city=city, address=address, max_age_days=building_cache_ttl_days)
+
+    floors_total_final = floors_total
+    year_built_final = year_built
+    material_final = house_material
+
+    if cache_bld:
+        floors_total_final = floors_total_final or cache_bld.get("floors_total")
+        year_built_final   = year_built_final   or cache_bld.get("year_built")
+        material_final     = material_final     or cache_bld.get("house_material")
+
+    # если всё ещё не хватает — спросим Overpass
+    need_overpass = (floors_total_final is None) or (year_built_final is None) or (not material_final)
+    if need_overpass:
+        enrich = _overpass_nearby_building(lat, lon, radius_m=overpass_radius_m)
+        if enrich:
+            floors_total_final = floors_total_final or enrich.get("floors_total")
+            year_built_final   = year_built_final   or enrich.get("year_built")
+            material_final     = material_final     or enrich.get("house_material")
+            if engine and not no_building_cache:
+                try:
+                    _put_cached_building(engine, city=city, address=address, lat=lat, lon=lon, enriched=enrich)
+                except Exception:
+                    pass
+
+    # обновим объект перед фичами
+    floors_total = floors_total_final
+    year_built = year_built_final
+    house_material = material_final
+    
     # 4) Производные фичи
     now_year = pd.Timestamp.utcnow().year
     age_house = (now_year - year_built) if year_built else None
@@ -908,6 +1143,10 @@ def predict_address(
 
     # 6) Выравнивание под схему фич и заполнение пропусков
     df = _align_frame_to_schema(df, expected_num, expected_cat)
+    df = _fill_na_from_stats(df, expected_num, expected_cat,
+                             artefact.get("impute_num", {}),
+                             artefact.get("impute_cat", {}))
+    # Фолбэк на случай отсутствующих статистик/новых колонок
     df = _fill_na_reasonable(df, expected_num, expected_cat)
 
     X = df.copy()

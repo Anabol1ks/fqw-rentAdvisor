@@ -1,27 +1,27 @@
 {
   "input": {
-    "address": "Волоколамское шоссе, 10",
+    "address": "Очаковское шоссе, 5к2",
     "city": "Москва",
     "rooms": 2,
-    "area_total": 53,
-    "area_living": null,
-    "area_kitchen": null,
-    "floor": 7,
-    "floors_total": 10,
-    "year_built": 1957,
-    "house_material": "кирпич",
+    "area_total": 50,
+    "area_living": 30,
+    "area_kitchen": 14,
+    "floor": 18,
+    "floors_total": 33,
+    "year_built": 2024,
+    "house_material": "монолит",
     "condition": null
   },
   "enriched": {
-    "lat": 55.8092148,
-    "lon": 37.4970602,
-    "dist_to_center_km": 9.58145846320499,
-    "metro_station": "Стрешнево",
-    "dist_to_metro_m": 799.0568312838344,
-    "metro_walk_min": 10,
-    "density_500m": 0
+    "lat": 55.6953018,
+    "lon": 37.4596502,
+    "dist_to_center_km": 11.946191372212608,
+    "metro_station": "Аминьевская",
+    "dist_to_metro_m": 699.7239558318118,
+    "metro_walk_min": 9,
+    "density_500m": 9
   },
-  "prediction": 101623.89992590885,
-  "pi_low": 51984.26770335787,
-  "pi_high": 149259.5239457539
+  "prediction": 98565.64376865499,
+  "pi_low": 86988.02898694125,
+  "pi_high": 139101.0381535592
 }
