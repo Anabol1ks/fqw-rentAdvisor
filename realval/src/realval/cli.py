@@ -141,23 +141,42 @@ def split_make(
     valid_out: Path = typer.Option(..., help="Паркет/CSV для valid"),
     time_col: str = typer.Option("first_seen", help="Имя временной колонки для time split"),
     valid_days: int = typer.Option(30, help="Сколько последних дней отдать в валидацию"),
+     valid_ratio: Optional[float] = typer.Option(
+        None,
+        help="Доля объектов (0-1), которую отдать в валидацию по времени. Например 0.2 = последние 20%. Если задано — перекрывает --valid-days.",
+        min=0.0,
+        max=1.0,
+    ),
 ):
     """
-    Делит по времени: последние valid_days — валидация. (Черновик, spatial CV добавим позже.)
+    Делит по времени:
+    - если задан --valid-ratio: валидация = последние X% по временной колонке
+    - иначе: валидация = последние valid_days.
     """
     df = _read_table(inp)
     if time_col not in df.columns:
         raise typer.BadParameter(f"Колонки {time_col} нет в данных")
 
     ts = pd.to_datetime(df[time_col], errors="coerce", utc=True)
-    cutoff = ts.max() - pd.Timedelta(days=valid_days)
-    train_df = df[ts <= cutoff].copy()
-    valid_df = df[ts > cutoff].copy()
+
+    if valid_ratio is not None:
+        if not (0 < valid_ratio < 1):
+            raise typer.BadParameter("--valid-ratio должен быть в диапазоне (0, 1)")
+        # Отсечка по квантилю времени: последние valid_ratio попадают в валидацию
+        cutoff = ts.quantile(1 - valid_ratio)
+        train_df = df[ts <= cutoff].copy()
+        valid_df = df[ts > cutoff].copy()
+        msg = f"[split] ratio={valid_ratio:.3f} cutoff={cutoff.isoformat()} train={len(train_df)} valid={len(valid_df)}"
+    else:
+        cutoff = ts.max() - pd.Timedelta(days=valid_days)
+        train_df = df[ts <= cutoff].copy()
+        valid_df = df[ts > cutoff].copy()
+        msg = f"[split] cutoff={cutoff.isoformat()} train={len(train_df)} valid={len(valid_df)}"
 
     _write_table(train_df, train_out)
     _write_table(valid_df, valid_out)
-    typer.echo(f"[split] cutoff={cutoff.isoformat()} train={len(train_df)} valid={len(valid_df)}")
-
+    typer.echo(msg)
+    
 def _align_frame_to_schema(
     df: pd.DataFrame,
     expected_numeric: List[str],

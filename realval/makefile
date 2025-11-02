@@ -6,7 +6,7 @@
 db_export_rent:
 	python -m realval db export \
 		--sql-file sql/export_listings_rent.sql \
-		--out data/raw/listings.parquet
+		--out data/raw/listings_rent.parquet
 		
 db_export_sale:
 	python -m realval db export \
@@ -16,7 +16,7 @@ db_export_sale:
 # предобработка
 ingest:
 	python -m realval ingest \
-		--src data/raw/listings.parquet \
+		--src data/raw/listings_rent.parquet \
 		--out data/interim/clean.parquet
 
 # генерация признаков
@@ -32,7 +32,8 @@ split:
 		--train-out data/features/train.parquet \
 		--valid-out data/features/valid.parquet \
 		--time-col first_seen \
-		--valid-days 15
+		--valid-days 15 \
+		--valid-ratio 0.3
 
 train:
 	python -m realval train \
