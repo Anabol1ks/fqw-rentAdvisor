@@ -1,14 +1,14 @@
 {
 	"city": "Москва",
-	"address": "Очаковское шоссе, 5к2",
+	"address": "Нежинская улица, 1к1",
 	"rooms": 2,
-	"area_total": 50,
-	"area_living": 30,
-	"area_kitchen": 14, 
-	"floor": 18,
-	"floors_total": 33,
-	"year_built": 2024,
+	"area_total": 90,
+	"area_living": 65,
+	"area_kitchen": 20, 
+	"floor": 24,
+	"floors_total": 31,
+	"year_built": 2008,
 	"house_material": "монолит",
-	"_comment": "цена 100 000"
+	"_comment": "цена 90 000"
 }
 
