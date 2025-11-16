@@ -56,3 +56,12 @@ predict-address:
 		--params .\sample_object.json \
 		--geocode-cache-ttl-days 180 \
 		--out models/reports/predict_address.json
+
+predict-address-comps:
+	python -m realval predict-address \
+		--model-path models/artefacts/rent_lgbm.joblib \
+		--params .\sample_object.json \
+		--comps-path data/features/base.parquet \
+		--comps-k 5 \
+		--comps-max-radius-km 3 \
+		--out models/reports/predict_address_with_comps.json

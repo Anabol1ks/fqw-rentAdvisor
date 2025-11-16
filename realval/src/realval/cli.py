@@ -228,6 +228,117 @@ def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
         df["is_active"] = df["is_active"].astype("boolean")
     return df
 
+def _rooms_bucket(r) -> str:
+    try:
+        r = int(r)
+    except Exception:
+        return "other"
+    if r <= 0:
+        return "studio"
+    if r == 1:
+        return "r1"
+    if r == 2:
+        return "r2"
+    if r == 3:
+        return "r3"
+    if r == 4:
+        return "r4"
+    return "r5p"
+
+def _find_comparables(
+    target: dict,
+    comps_df: pd.DataFrame,
+    k: int = 5,
+    max_radius_km: float = 5.0,
+) -> List[dict]:
+    """
+    Находит K ближайших по месту и типу объявлений как компараблы.
+    target: словарь с полями (lat, lon, rooms, area_total, city, deal_type='rent_long' и т.п.)
+    """
+    if "lat" not in target or "lon" not in target:
+        return []
+
+    lat0 = float(target["lat"])
+    lon0 = float(target["lon"])
+    city = target.get("city")
+
+    df = comps_df.copy()
+    df = _coerce_types(df)
+
+    # фильтры: тот же город, аренда long, валидная цена и координаты
+    if city and "city" in df.columns:
+        df = df[df["city"] == city]
+    if "deal_type" in df.columns:
+        df = df[df["deal_type"] == "rent_long"]
+
+    df = df.dropna(subset=["lat", "lon", "price_rub", "area_total"])
+
+    if df.empty:
+        return []
+
+    # расстояние до target
+    df["_dist_km"] = _haversine_km(
+        lat0, lon0,
+        df["lat"].values,
+        df["lon"].values,
+    )
+
+    # выкинем очень далеко
+    df = df[df["_dist_km"] <= max_radius_km]
+    if df.empty:
+        return []
+
+    # buckets комнат
+    df["_rooms_bucket"] = df["rooms"].apply(_rooms_bucket)
+    target_rb = _rooms_bucket(target.get("rooms"))
+
+    # фильтр по bucket (сначала строгий, потом fallback)
+    same_rb = df[df["_rooms_bucket"] == target_rb]
+    use_df = same_rb if not same_rb.empty else df
+
+    # похожесть по площади: штраф за отклонение
+    tgt_area = float(target.get("area_total") or 0)
+    if tgt_area > 0:
+        use_df["_area_ratio"] = (use_df["area_total"] / tgt_area).clip(lower=0.2, upper=5.0)
+        use_df["_area_penalty"] = (np.log(use_df["_area_ratio"]) ** 2)  # симметричный штраф
+    else:
+        use_df["_area_penalty"] = 0.0
+
+    # итоговый скор: расстояние + штраф за площадь
+    use_df["_score"] = use_df["_dist_km"] + use_df["_area_penalty"]
+
+    use_df = use_df.sort_values("_score").head(k)
+
+    # формируем аккуратный вывод
+    cols_basic = [
+        "deal_type", "city", "district",
+        "price_rub", "price_per_m2",
+        "rooms", "area_total", "area_living", "area_kitchen",
+        "floor", "floors_total", "year_built", "house_material", "condition",
+        "lat", "lon", "dist_to_metro_m", "dist_to_center_km", "density_500m",
+        "metro_station", "metro_walk_min", "address_norm", "url",
+    ]
+    result = []
+    for _, r in use_df.iterrows():
+        obj = {}
+        for c in cols_basic:
+            if c in use_df.columns:
+                v = r[c]
+                # упростим сериализацию дат
+                if isinstance(v, (pd.Timestamp, )):
+                    v = v.isoformat()
+                # Заменяем NaN на None для корректного JSON
+                elif pd.isna(v):
+                    v = None
+                # Конвертируем numpy типы в Python native
+                elif hasattr(v, 'item'):
+                    v = v.item()
+                obj[c] = v
+        obj["distance_km"] = float(r["_dist_km"])
+        result.append(obj)
+    return result
+
+
 def _ensure_h3(df: pd.DataFrame, res: int = 7) -> pd.DataFrame:
     if "h3_7" in df.columns and res == 7:
         return df
@@ -489,6 +600,49 @@ def features_build(
     """
     df = _read_table(inp)
     df = _coerce_types(df)
+
+    # Геофичи: центр, метро, плотность
+    dsn = os.environ.get("POSTGRES_DSN_URL")
+    engine = sa.create_engine(dsn) if dsn else None
+    
+    if engine:
+        typer.echo("[features] Обогащаем геофичи (метро, плотность)...")
+        # Центр города
+        center = CITY_CENTERS.get("Москва", CITY_CENTERS["Москва"])
+        
+        # Метро
+        metros = _load_metro_points(engine, city="Москва")
+        
+        # Инициализируем колонки
+        df["dist_to_center_km"] = None
+        df["dist_to_metro_m"] = None
+        df["metro_station"] = ""
+        df["metro_walk_min"] = None
+        df["density_500m"] = None
+        
+        for idx, row in df.iterrows():
+            if pd.notna(row.get("lat")) and pd.notna(row.get("lon")):
+                lat, lon = float(row["lat"]), float(row["lon"])
+                
+                # Расстояние до центра
+                df.at[idx, "dist_to_center_km"] = _haversine_km(lat, lon, center[0], center[1])
+                
+                # Ближайшее метро
+                metro_name, dist_m, walk_min = _nearest_metro(lat, lon, metros)
+                df.at[idx, "dist_to_metro_m"] = dist_m
+                df.at[idx, "metro_station"] = metro_name or ""
+                df.at[idx, "metro_walk_min"] = walk_min
+                
+                # Плотность
+                df.at[idx, "density_500m"] = _density_500m(engine, lat, lon, days_back=90)
+    else:
+        typer.echo("[features] ⚠️  Нет DSN — геофичи не заполнены")
+    # ======== КОНЕЦ ВСТАВКИ ========
+    
+    # Производные фичи
+    now_year = pd.Timestamp.utcnow().year
+    df["age_house"] = df["year_built"].apply(lambda x: (now_year - x) if pd.notna(x) else None)
+
 
     # возраст дома
     if "year_built" in df.columns:
@@ -986,6 +1140,12 @@ def predict_address(
     building_cache_ttl_days: int = typer.Option(365, help="TTL записи building_cache"),
     no_building_cache: bool = typer.Option(False, help="Не использовать кэш building_cache"),
     overpass_radius_m: int = typer.Option(120, help="Поисковый радиус для Overpass"),
+    comps_path: Optional[Path] = typer.Option(
+        None,
+        help="Паркет/CSV с фичами объявлений для поиска компараблов (обычно train/features)."
+    ),
+    comps_k: int = typer.Option(5, help="Сколько компараблов возвращать"),
+    comps_max_radius_km: float = typer.Option(5.0, help="Максимальный радиус поиска компараблов, км"),
 
 ):
     """
@@ -1210,16 +1370,37 @@ def predict_address(
                 low, high = low, y_hat
         pi_low, pi_high = low, high
 
+        # --- Компараблы, если задан comps_path ---
+    comparables: List[dict] = []
+    if comps_path is not None:
+        comps_path = Path(comps_path)
+        if comps_path.exists():
+            comps_df = _read_table(comps_path)
+            comparables = _find_comparables(
+                target=obj,
+                comps_df=comps_df,
+                k=comps_k,
+                max_radius_km=comps_max_radius_km,
+            )
+
     result = {
-        "input": {"address": address, "city": city, "rooms": rooms, "area_total": area_total,
-                  "area_living": area_living, "area_kitchen": area_kitchen,
-                  "floor": floor, "floors_total": floors_total, "year_built": year_built,
-                  "house_material": house_material, "condition": condition},
-        "enriched": {"lat": lat, "lon": lon, "dist_to_center_km": dist_to_center_km,
-                     "metro_station": metro_name, "dist_to_metro_m": dist_to_metro_m,
-                     "metro_walk_min": metro_walk_min, "density_500m": density_500m},
-        "prediction": y_hat, "pi_low": pi_low, "pi_high": pi_high
+        "input": {
+            "address": address, "city": city, "rooms": rooms, "area_total": area_total,
+            "area_living": area_living, "area_kitchen": area_kitchen,
+            "floor": floor, "floors_total": floors_total, "year_built": year_built,
+            "house_material": house_material, "condition": condition
+        },
+        "enriched": {
+            "lat": lat, "lon": lon, "dist_to_center_km": dist_to_center_km,
+            "metro_station": metro_name, "dist_to_metro_m": dist_to_metro_m,
+            "metro_walk_min": metro_walk_min, "density_500m": density_500m
+        },
+        "prediction": y_hat,
+        "pi_low": pi_low,
+        "pi_high": pi_high,
+        "comparables": comparables,
     }
+
 
     if out:
         out.parent.mkdir(parents=True, exist_ok=True)
