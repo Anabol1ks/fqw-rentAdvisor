@@ -601,11 +601,13 @@ def _fill_na_from_stats(df, num_cols, cat_cols, stats_num, stats_cat):
 def _build_preprocessor(df: pd.DataFrame, target_col: str) -> Tuple[ColumnTransformer, List[str], List[str]]:
     # Определяем числовые/категориальные фичи
     drop_cols = {
-        target_col, "id", "url", "title", "description", "address_norm", "first_seen",
-        "last_seen", "created_at", "updated_at", "geom", "contact_phone_hash",
-        # НОВОЕ: жёстко выключаем все price_* кроме target
-        "price_per_m2", "price_per_m2_calc"
-} & set(df.columns)
+        target_col,
+        "id", "url", "title", "description", "address_norm",
+        "first_seen", "last_seen", "created_at", "updated_at",
+        "geom", "contact_phone_hash",
+        # важное: убираем утечку таргета
+        "price_per_m2", "price_per_m2_calc",
+    } & set(df.columns)
     feat_df = df.drop(columns=list(drop_cols), errors="ignore")
     y = None
     if target_col in df.columns:
@@ -627,7 +629,9 @@ def _build_preprocessor(df: pd.DataFrame, target_col: str) -> Tuple[ColumnTransf
 def _fit_model(
     X: pd.DataFrame, y: pd.Series, objective: str = "regression", alpha: Optional[float] = None
 ) -> Pipeline:
+    # гарантируем, что в LightGBM прилетает numpy-массив, а не DataFrame с именами фич
     X = np.asarray(X)
+
     params = dict(
         n_estimators=1200,
         learning_rate=0.03,
@@ -649,7 +653,6 @@ def _fit_model(
     pipe.fit(X, y)
     return pipe
 
-
 def _rmse(y_true, y_pred) -> float:
     """Совместимый RMSE для разных версий sklearn."""
     try:
@@ -660,6 +663,14 @@ def _rmse(y_true, y_pred) -> float:
             return float(mean_squared_error(y_true, y_pred, squared=False))
         except TypeError:
             return float(mean_squared_error(y_true, y_pred) ** 0.5)
+
+def _conformal_eps_log(y_true_log: np.ndarray, y_pred_log: np.ndarray, q: float = 0.9) -> float:
+    """
+    Квантиль абсолютной ошибки в лог-пространстве.
+    Используем для построения конформального предиктивного интервала.
+    """
+    resid = np.abs(y_true_log - y_pred_log)
+    return float(np.quantile(resid, q))
 
 
 @app.command("train")
@@ -680,6 +691,10 @@ def train_fit(
     # типы
     train_df = _coerce_types(train_df)
     valid_df = _coerce_types(valid_df)
+    
+    price_min, price_max = 10_000, 600_000  # можно потом подвинуть под твои данные
+    train_df = train_df[train_df[target].between(price_min, price_max)]
+    valid_df = valid_df[valid_df[target].between(price_min, price_max)]
 
     # подготовка препроцессора
     preproc, num_cols, cat_cols = _build_preprocessor(train_df, target)
@@ -739,11 +754,17 @@ def train_fit(
         q10_pipe = _fit_model(X_tr, y_tr, objective="quantile", alpha=0.1)
         q90_pipe = _fit_model(X_tr, y_tr, objective="quantile", alpha=0.9)
 
-    # валидация
-    def _inv(v):
-        return np.exp(v) if log_target else v
+    # валидация + конформальная калибровка
+    if log_target:
+        # модель училась на логе — работаем в лог-пространстве
+        y_va_pred_log = median_pipe.predict(X_va)
+        pred_va = np.exp(y_va_pred_log)
+        eps_conf = _conformal_eps_log(y_va, y_va_pred_log, q=0.9)
+    else:
+        y_va_pred = median_pipe.predict(X_va)
+        pred_va = y_va_pred
+        eps_conf = None  # конформал в таком виде делаем только для лог-таргета
 
-    pred_va = _inv(median_pipe.predict(X_va))
     mae = mean_absolute_error(y_va_raw, pred_va)
     rmse = _rmse(y_va_raw, pred_va)
 
@@ -757,8 +778,7 @@ def train_fit(
         "numeric_features": num_cols,
         "categorical_features": cat_cols,
         "metrics": {"valid_mae": float(mae), "valid_rmse": float(rmse)},
-        "impute_num": num_stats,
-        "impute_cat": cat_stats,
+        "conformal_eps_log": eps_conf,
     }
 
     model_out.parent.mkdir(parents=True, exist_ok=True)
@@ -808,23 +828,31 @@ def predict_one(
     def _inv(v):
         return float(np.exp(v)) if log_target else float(v)
 
-    y_hat = _inv(median_pipe.predict(X)[0])
+    raw_pred = float(median_pipe.predict(X)[0])
+    y_hat = _inv(raw_pred)
+
     pi_low = pi_high = None
-    if q10_pipe is not None and q90_pipe is not None:
+    eps_conf = artefact.get("conformal_eps_log")
+
+    if eps_conf is not None and log_target:
+        # конформальный интервал в лог-пространстве
+        pi_low = float(np.exp(raw_pred - eps_conf))
+        pi_high = float(np.exp(raw_pred + eps_conf))
+    elif q10_pipe is not None and q90_pipe is not None:
+        # fallback на квантильные модели
         pi_low = _inv(q10_pipe.predict(X)[0])
         pi_high = _inv(q90_pipe.predict(X)[0])
-        # упорядочим интервалы, чтобы pi_low <= y_hat <= pi_high
-        
+
+    # упорядочим интервалы, чтобы pi_low <= y_hat <= pi_high
     if pi_low is not None and pi_high is not None:
         low, mid, high = sorted([pi_low, y_hat, pi_high])
-        # стараемся сохранить середину как y_hat
-        # если y_hat выпал за границы, просто сдвигаем границы
         if not (low <= y_hat <= high):
             if y_hat < low:
                 low, high = y_hat, high
             elif y_hat > high:
                 low, high = low, y_hat
         pi_low, pi_high = low, high
+
 
     result = {
         "prediction": y_hat,
@@ -1160,13 +1188,19 @@ def predict_address(
 
     def _inv(v): return float(np.exp(v)) if log_target else float(v)
 
-    y_hat = _inv(median_pipe.predict(X)[0])
+    raw_pred = float(median_pipe.predict(X)[0])
+    y_hat = _inv(raw_pred)
+
     pi_low = pi_high = None
-    if q10_pipe is not None and q90_pipe is not None:
+    eps_conf = artefact.get("conformal_eps_log")
+
+    if eps_conf is not None and log_target:
+        pi_low = float(np.exp(raw_pred - eps_conf))
+        pi_high = float(np.exp(raw_pred + eps_conf))
+    elif q10_pipe is not None and q90_pipe is not None:
         pi_low = _inv(q10_pipe.predict(X)[0])
         pi_high = _inv(q90_pipe.predict(X)[0])
 
-    # упорядочим
     if pi_low is not None and pi_high is not None:
         low, mid, high = sorted([pi_low, y_hat, pi_high])
         if not (low <= y_hat <= high):

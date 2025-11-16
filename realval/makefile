@@ -29,16 +29,16 @@ features:
 split:
 	python -m realval split \
 		--in data/features/base.parquet \
-		--train-out data/features/train.parquet \
-		--valid-out data/features/valid.parquet \
+		--train-out data/splits/train.parquet \
+		--valid-out data/splits/valid.parquet \
 		--time-col first_seen \
 		--valid-days 15 \
 		--valid-ratio 0.3
 
 train:
 	python -m realval train \
-		--train-path data/features/train.parquet \
-		--valid-path data/features/valid.parquet \
+		--train-path data/splits/train.parquet \
+		--valid-path data/splits/valid.parquet \
 		--model-out models/artefacts/rent_lgbm.joblib \
 		--target price_rub \
 		--log-target \
