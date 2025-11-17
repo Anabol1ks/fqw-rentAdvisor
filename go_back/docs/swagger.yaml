@@ -16,6 +16,10 @@ definitions:
       rooms:
         example: 2
         type: integer
+      url:
+        description: <-- ДОБАВЛЕНО
+        example: https://realty.yandex.ru/offer/123456/
+        type: string
     type: object
   handlers.AddressValuationObjectSummary:
     properties:
@@ -140,9 +144,79 @@ definitions:
         example: something went wrong
         type: string
     type: object
+  handlers.ValuationListItem:
+    properties:
+      address:
+        example: Нежинская улица, 1к1
+        type: string
+      city:
+        example: Москва
+        type: string
+      created_at:
+        type: string
+      deal_type:
+        example: rent_long
+        type: string
+      id:
+        example: d9a3f3b6-...
+        type: string
+      interval_high_rub:
+        example: 228504.7
+        type: number
+      interval_low_rub:
+        example: 120077.1
+        type: number
+      prediction_rub:
+        example: 165644.8
+        type: number
+      summary_short:
+        example: Квартира в городе Москва...
+        type: string
+    type: object
+  handlers.ValuationListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.ValuationListItem'
+        type: array
+      limit:
+        type: integer
+      offset:
+        type: integer
+    type: object
 info:
   contact: {}
 paths:
+  /api/v1/valuation:
+    get:
+      consumes:
+      - application/json
+      description: Возвращает общий список сохранённых оценок (thin-формат)
+      parameters:
+      - default: 20
+        description: Максимум записей
+        in: query
+        name: limit
+        type: integer
+      - default: 0
+        description: Смещение
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ValuationListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Список сохранённых отчётов
+      tags:
+      - valuation
   /api/v1/valuation/{id}:
     get:
       consumes:
@@ -175,6 +249,37 @@ paths:
           schema:
             $ref: '#/definitions/handlers.ErrorResponse'
       summary: Получить краткий отчёт об оценке по ID
+      tags:
+      - valuation
+  /api/v1/valuation/{id}/pdf:
+    get:
+      description: Возвращает PDF-файл с полным отчетом по оценке аренды
+      parameters:
+      - description: ID отчёта (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/pdf
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: PDF-отчет по оценке
       tags:
       - valuation
   /api/v1/valuation/address:

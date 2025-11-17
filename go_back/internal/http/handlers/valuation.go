@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +13,7 @@ import (
 
 	"go_back/internal/mlclient"
 	"go_back/internal/models"
+	"go_back/internal/reportpdf"
 	repositories "go_back/internal/repository"
 )
 
@@ -35,7 +38,7 @@ type ErrorResponse struct {
 type AddressValuationRequest struct {
 	City          string   `json:"city" binding:"required" example:"Москва"`
 	Address       string   `json:"address" binding:"required" example:"Нежинская улица, 1к1"`
-	Rooms         int      `json:"rooms" binding:"required" example:"2"`
+	Rooms         *int     `json:"rooms" binding:"required" example:"2"`
 	AreaTotal     float64  `json:"area_total" binding:"required" example:"90"`
 	AreaLiving    *float64 `json:"area_living,omitempty" example:"65"`
 	AreaKitchen   *float64 `json:"area_kitchen,omitempty" example:"20"`
@@ -84,6 +87,7 @@ type AddressValuationComparableSummary struct {
 	AreaTotal    *float64 `json:"area_total,omitempty" example:"83"`
 	DistanceKm   *float64 `json:"distance_km,omitempty" example:"0.01"`
 	MetroStation *string  `json:"metro_station,omitempty" example:"Славянский бульвар"`
+	URL          *string  `json:"url,omitempty" example:"https://realty.yandex.ru/offer/123456/"` // <-- ДОБАВЛЕНО
 }
 
 // AddressValuationResponse — то, что отдаём фронту
@@ -113,10 +117,15 @@ func (h *ValuationHandler) PredictAddress(c *gin.Context) {
 		return
 	}
 
+	if req.Rooms == nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "rooms is required"})
+		return
+	}
+
 	mlReq := mlclient.PredictAddressRequest{
 		City:          req.City,
 		Address:       req.Address,
-		Rooms:         req.Rooms,
+		Rooms:         *req.Rooms,
 		AreaTotal:     req.AreaTotal,
 		AreaLiving:    req.AreaLiving,
 		AreaKitchen:   req.AreaKitchen,
@@ -272,6 +281,7 @@ func mapReportToAddressResponse(r *mlclient.Report) AddressValuationResponse {
 			AreaTotal:    c.AreaTotal,
 			DistanceKm:   c.DistanceKm,
 			MetroStation: c.MetroStation,
+			URL:          c.URL, // <-- ДОБАВЛЕНО
 		})
 	}
 
@@ -282,4 +292,137 @@ func mapReportToAddressResponse(r *mlclient.Report) AddressValuationResponse {
 		Text:        text,
 		Comparables: comparables,
 	}
+}
+
+// GetValuationPDF godoc
+// @Summary      PDF-отчет по оценке
+// @Description  Возвращает PDF-файл с полным отчетом по оценке аренды
+// @Tags         valuation
+// @Produce      application/pdf
+// @Param        id   path      string true "ID отчёта (UUID)"
+// @Success      200  {file}    file
+// @Failure      400  {object}  ErrorResponse
+// @Failure      404  {object}  ErrorResponse
+// @Failure      500  {object}  ErrorResponse
+// @Router       /api/v1/valuation/{id}/pdf [get]
+func (h *ValuationHandler) GetValuationPDF(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "invalid id"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	vr, err := h.repo.GetByID(ctx, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if vr == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "report not found"})
+		return
+	}
+
+	var full mlclient.Report
+	if err := json.Unmarshal(vr.RawReport, &full); err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "failed to decode stored report"})
+		return
+	}
+	full.ReportID = vr.ID.String()
+
+	pdfBytes, err := reportpdf.RenderReportPDF(&full, reportpdf.Options{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "failed to render pdf",
+			"detail": err.Error(), // <-- покажет реальную ошибку
+		})
+		return
+	}
+
+	filename := fmt.Sprintf("report_%s.pdf", vr.ID.String())
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}
+
+type ValuationListItem struct {
+	ID              string    `json:"id" example:"d9a3f3b6-..."`
+	CreatedAt       time.Time `json:"created_at"`
+	City            string    `json:"city" example:"Москва"`
+	Address         string    `json:"address" example:"Нежинская улица, 1к1"`
+	DealType        string    `json:"deal_type" example:"rent_long"`
+	PredictionRub   float64   `json:"prediction_rub" example:"165644.8"`
+	IntervalLowRub  float64   `json:"interval_low_rub" example:"120077.1"`
+	IntervalHighRub float64   `json:"interval_high_rub" example:"228504.7"`
+	SummaryShort    string    `json:"summary_short,omitempty" example:"Квартира в городе Москва..."`
+}
+
+// ответ со списком + простая пагинация
+type ValuationListResponse struct {
+	Items  []ValuationListItem `json:"items"`
+	Limit  int                 `json:"limit"`
+	Offset int                 `json:"offset"`
+}
+
+// ListValuations godoc
+// @Summary      Список сохранённых отчётов
+// @Description  Возвращает общий список сохранённых оценок (thin-формат)
+// @Tags         valuation
+// @Accept       json
+// @Produce      json
+// @Param        limit   query     int false "Максимум записей" default(20)
+// @Param        offset  query     int false "Смещение" default(0)
+// @Success      200  {object}    ValuationListResponse
+// @Failure      500  {object}    ErrorResponse
+// @Router       /api/v1/valuation [get]
+func (h *ValuationHandler) ListValuations(c *gin.Context) {
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if err != nil || limit <= 0 {
+		limit = 20
+	}
+	offset, err := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if err != nil || offset < 0 {
+		offset = 0
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	items, err := h.repo.List(ctx, limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	result := ValuationListResponse{
+		Items:  make([]ValuationListItem, 0, len(items)),
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	for _, vr := range items {
+		li := ValuationListItem{
+			ID:              vr.ID.String(),
+			CreatedAt:       vr.CreatedAt,
+			City:            vr.City,
+			Address:         vr.Address,
+			DealType:        vr.DealType,
+			PredictionRub:   vr.PredictionRub,
+			IntervalLowRub:  vr.IntervalLowRub,
+			IntervalHighRub: vr.IntervalHighRub,
+		}
+
+		// попробуем достать summary_short из raw_report (если есть текст)
+		var full mlclient.Report
+		if err := json.Unmarshal(vr.RawReport, &full); err == nil && full.Text != nil {
+			li.SummaryShort = full.Text.SummaryShort
+		}
+
+		result.Items = append(result.Items, li)
+	}
+
+	c.JSON(http.StatusOK, result)
 }

@@ -19,13 +19,15 @@ type PredictAddressRequest struct {
 
 // Report — полный ответ от ML-сервиса
 type Report struct {
-	ReportID    string       `json:"report_id"`
-	Object      Object       `json:"object"`
-	Enriched    Enriched     `json:"enriched"`
-	Pricing     Pricing      `json:"pricing"`
-	Explanation Explanation  `json:"explanation"`
-	Text        *TextBlocks  `json:"text,omitempty"`
-	Comparables []Comparable `json:"comparables,omitempty"`
+	ReportID            string              `json:"report_id"`
+	Object              Object              `json:"object"`
+	Enriched            Enriched            `json:"enriched"`
+	Pricing             Pricing             `json:"pricing"`
+	Explanation         Explanation         `json:"explanation"`
+	ModelInfo           ModelInfo           `json:"model_info"` // <-- ДОБАВЛЕНО
+	Text                *TextBlocks         `json:"text,omitempty"`
+	Comparables         []Comparable        `json:"comparables,omitempty"`
+	FeatureContribution FeatureContribution `json:"feature_contribution,omitempty"`
 }
 
 type Object struct {
@@ -86,6 +88,7 @@ type Comparable struct {
 	DistanceKm   *float64 `json:"distance_km,omitempty"`
 	MetroStation *string  `json:"metro_station,omitempty"`
 	Address      *string  `json:"address,omitempty"`
+	URL          *string  `json:"url,omitempty"` // <-- ДОБАВЛЕНО
 }
 
 type FeatureContribution struct {

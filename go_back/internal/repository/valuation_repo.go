@@ -13,6 +13,7 @@ import (
 type ValuationReportRepository interface {
 	Save(ctx context.Context, r *models.ValuationReport) error
 	GetByID(ctx context.Context, id uuid.UUID) (*models.ValuationReport, error)
+	List(ctx context.Context, limit, offset int) ([]models.ValuationReport, error)
 }
 
 type valuationReportRepo struct {
@@ -42,4 +43,23 @@ func (r *valuationReportRepo) GetByID(ctx context.Context, id uuid.UUID) (*model
 		return nil, fmt.Errorf("get valuation_report: %w", err)
 	}
 	return &vr, nil
+}
+
+func (r *valuationReportRepo) List(ctx context.Context, limit, offset int) ([]models.ValuationReport, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var items []models.ValuationReport
+	if err := r.db.WithContext(ctx).
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&items).Error; err != nil {
+		return nil, fmt.Errorf("list valuation_reports: %w", err)
+	}
+	return items, nil
 }

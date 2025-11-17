@@ -4,6 +4,51 @@
         "contact": {}
     },
     "paths": {
+        "/api/v1/valuation": {
+            "get": {
+                "description": "Возвращает общий список сохранённых оценок (thin-формат)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "valuation"
+                ],
+                "summary": "Список сохранённых отчётов",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Максимум записей",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Смещение",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ValuationListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/valuation/address": {
             "post": {
                 "description": "Вызывает ML-сервис RealVal для расчёта рыночной ставки аренды и сохраняет полный отчёт",
@@ -99,6 +144,53 @@
                     }
                 }
             }
+        },
+        "/api/v1/valuation/{id}/pdf": {
+            "get": {
+                "description": "Возвращает PDF-файл с полным отчетом по оценке аренды",
+                "produces": [
+                    "application/pdf"
+                ],
+                "tags": [
+                    "valuation"
+                ],
+                "summary": "PDF-отчет по оценке",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID отчёта (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -124,6 +216,11 @@
                 "rooms": {
                     "type": "integer",
                     "example": 2
+                },
+                "url": {
+                    "description": "\u003c-- ДОБАВЛЕНО",
+                    "type": "string",
+                    "example": "https://realty.yandex.ru/offer/123456/"
                 }
             }
         },
@@ -296,6 +393,63 @@
                 "error": {
                     "type": "string",
                     "example": "something went wrong"
+                }
+            }
+        },
+        "handlers.ValuationListItem": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string",
+                    "example": "Нежинская улица, 1к1"
+                },
+                "city": {
+                    "type": "string",
+                    "example": "Москва"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deal_type": {
+                    "type": "string",
+                    "example": "rent_long"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "d9a3f3b6-..."
+                },
+                "interval_high_rub": {
+                    "type": "number",
+                    "example": 228504.7
+                },
+                "interval_low_rub": {
+                    "type": "number",
+                    "example": 120077.1
+                },
+                "prediction_rub": {
+                    "type": "number",
+                    "example": 165644.8
+                },
+                "summary_short": {
+                    "type": "string",
+                    "example": "Квартира в городе Москва..."
+                }
+            }
+        },
+        "handlers.ValuationListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.ValuationListItem"
+                    }
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
                 }
             }
         }

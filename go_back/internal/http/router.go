@@ -40,7 +40,9 @@ func SetupRouter(cfg *config.Config, repo repository.ValuationReportRepository) 
 		{
 			valuation.POST("/address", valuationHandler.PredictAddress)
 			valuation.GET("/ml-health", valuationHandler.CheckMLHealth)
+			valuation.GET("", valuationHandler.ListValuations)
 			valuation.GET("/:id", valuationHandler.GetValuationByID)
+			valuation.GET("/:id/pdf", valuationHandler.GetValuationPDF)
 		}
 	}
 
