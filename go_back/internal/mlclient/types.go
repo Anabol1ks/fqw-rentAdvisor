@@ -19,6 +19,7 @@ type PredictAddressRequest struct {
 
 // Report — полный ответ от ML-сервиса
 type Report struct {
+	ReportID    string       `json:"report_id"`
 	Object      Object       `json:"object"`
 	Enriched    Enriched     `json:"enriched"`
 	Pricing     Pricing      `json:"pricing"`

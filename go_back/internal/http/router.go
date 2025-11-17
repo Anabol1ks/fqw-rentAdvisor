@@ -11,9 +11,10 @@ import (
 	"go_back/internal/config"
 	"go_back/internal/http/handlers"
 	"go_back/internal/mlclient"
+	"go_back/internal/repository"
 )
 
-func SetupRouter(cfg *config.Config) *gin.Engine {
+func SetupRouter(cfg *config.Config, repo repository.ValuationReportRepository) *gin.Engine {
 	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
@@ -31,7 +32,7 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 	})
 
 	ml := mlclient.New(cfg.MLServiceURL, time.Duration(cfg.MLTimeoutSec)*time.Second)
-	valuationHandler := handlers.NewValuationHandler(ml)
+	valuationHandler := handlers.NewValuationHandler(ml, repo)
 
 	api := r.Group("/api/v1")
 	{
@@ -39,6 +40,7 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 		{
 			valuation.POST("/address", valuationHandler.PredictAddress)
 			valuation.GET("/ml-health", valuationHandler.CheckMLHealth)
+			valuation.GET("/:id", valuationHandler.GetValuationByID)
 		}
 	}
 

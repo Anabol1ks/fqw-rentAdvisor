@@ -6,6 +6,8 @@ import (
 	"go_back/internal/database"
 	httpapi "go_back/internal/http"
 	"go_back/internal/logger"
+	"go_back/internal/models"
+	"go_back/internal/repository"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -26,7 +28,11 @@ func main() {
 	db := database.ConnectDB(cfg, log)
 	defer database.CloseDB(db, log)
 
-	r := httpapi.SetupRouter(cfg)
+	db.AutoMigrate(&models.ValuationReport{})
+
+	repo := repository.NewValuationReportRepository(db)
+
+	r := httpapi.SetupRouter(cfg, repo)
 	port := ":" + cfg.Port
 	if err := r.Run(port); err != nil {
 		log.Fatal("failed to run http server", zap.Error(err))

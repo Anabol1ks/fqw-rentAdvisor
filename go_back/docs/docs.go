@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/valuation/address": {
             "post": {
-                "description": "Вызывает ML-сервис RealVal для расчёта рыночной ставки аренды и возвращает краткий отчёт",
+                "description": "Вызывает ML-сервис RealVal для расчёта рыночной ставки аренды и сохраняет полный отчёт",
                 "consumes": [
                     "application/json"
                 ],
@@ -54,6 +54,56 @@ const docTemplate = `{
                     },
                     "502": {
                         "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/valuation/{id}": {
+            "get": {
+                "description": "Читает сохранённый отчёт из БД и возвращает краткую версию для фронта",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "valuation"
+                ],
+                "summary": "Получить краткий отчёт об оценке по ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID отчёта (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.AddressValuationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/handlers.ErrorResponse"
                         }
@@ -223,6 +273,9 @@ const docTemplate = `{
                 },
                 "price": {
                     "$ref": "#/definitions/handlers.AddressValuationPriceSummary"
+                },
+                "report_id": {
+                    "type": "string"
                 },
                 "text": {
                     "$ref": "#/definitions/handlers.AddressValuationTextSummary"
