@@ -245,6 +245,42 @@ def _rooms_bucket(r) -> str:
         return "r4"
     return "r5p"
 
+def _attach_local_price_stats(
+    df: pd.DataFrame,
+    stats_df: Optional[pd.DataFrame],
+    global_mean: Optional[float],
+) -> pd.DataFrame:
+    """
+    Добавляет в df колонки local_avg_price_rub и local_density_count
+    по H3_7 и rooms_bucket на основе stats_df (из трейна).
+    """
+    df = df.copy()
+    if stats_df is None or global_mean is None:
+        # на всякий случай — просто не трогаем
+        if "local_avg_price_rub" not in df.columns:
+            df["local_avg_price_rub"] = global_mean if global_mean is not None else 0.0
+        if "local_density_count" not in df.columns:
+            df["local_density_count"] = 0.0
+        return df
+
+    if "h3_7" not in df.columns:
+        df = _ensure_h3(df, res=7)
+    if "rooms_bucket" not in df.columns:
+        df["rooms_bucket"] = df["rooms"].apply(_rooms_bucket)
+
+    st = stats_df.copy()
+    df = df.merge(st, on=["h3_7", "rooms_bucket"], how="left")
+
+    df["local_avg_price_rub"] = np.where(
+        df["cnt"].notna(),
+        df["sum_price"] / df["cnt"],
+        global_mean,
+    )
+    df["local_density_count"] = df["cnt"].fillna(0)
+
+    df = df.drop(columns=["sum_price", "cnt"], errors="ignore")
+    return df
+
 def _find_comparables(
     target: dict,
     comps_df: pd.DataFrame,
@@ -835,6 +871,11 @@ def train_fit(
     target: str = typer.Option("price_rub", help="Целевая колонка"),
     log_target: bool = typer.Option(True, help="Лог-преобразование целевой"),
     with_intervals: bool = typer.Option(True, help="Обучать квантильные модели 0.1/0.9"),
+    use_local_stats: bool = typer.Option(
+        False,
+        help="Добавлять локальные признаки (local_avg_price_rub, local_density_count) по H3+rooms. "
+             "На маленьком датасете лучше оставить False.",
+    ),
 ):
     """
     Обучает LGBM: медианный предиктор (через обычную регрессию) + опционально квантили.
@@ -849,6 +890,54 @@ def train_fit(
     price_min, price_max = 10_000, 600_000  # можно потом подвинуть под твои данные
     train_df = train_df[train_df[target].between(price_min, price_max)]
     valid_df = valid_df[valid_df[target].between(price_min, price_max)]
+        # гарантируем H3 и rooms_bucket (это можно делать всегда)
+    train_df = _ensure_h3(train_df, res=7)
+    valid_df = _ensure_h3(valid_df, res=7)
+
+    train_df["rooms_bucket"] = train_df["rooms"].apply(_rooms_bucket)
+    valid_df["rooms_bucket"] = valid_df["rooms"].apply(_rooms_bucket)
+
+    grp = None
+    global_mean_price = None
+
+    if use_local_stats:
+        # локальные статы по рынку
+        grp = (
+            train_df
+            .groupby(["h3_7", "rooms_bucket"], dropna=True)["price_rub"]
+            .agg(["sum", "count"])
+            .reset_index()
+            .rename(columns={"sum": "sum_price", "count": "cnt"})
+        )
+        global_mean_price = float(train_df["price_rub"].mean())
+
+        # --- train: leave-one-out ---
+        train_df = train_df.merge(grp, on=["h3_7", "rooms_bucket"], how="left")
+
+        train_df["local_cnt"] = train_df["cnt"] - 1
+        train_df["local_sum"] = train_df["sum_price"] - train_df["price_rub"]
+
+        train_df["local_avg_price_rub"] = np.where(
+            train_df["local_cnt"] > 0,
+            train_df["local_sum"] / train_df["local_cnt"],
+            global_mean_price,
+        )
+        train_df["local_density_count"] = train_df["cnt"].fillna(0)
+
+        train_df = train_df.drop(columns=["sum_price", "cnt", "local_sum", "local_cnt"])
+
+        # --- valid: просто по train-группам ---
+        valid_df = valid_df.merge(grp, on=["h3_7", "rooms_bucket"], how="left")
+
+        valid_df["local_avg_price_rub"] = np.where(
+            valid_df["cnt"].notna(),
+            valid_df["sum_price"] / valid_df["cnt"],
+            global_mean_price,
+        )
+        valid_df["local_density_count"] = valid_df["cnt"].fillna(0)
+
+        valid_df = valid_df.drop(columns=["sum_price", "cnt"])
+
 
     # подготовка препроцессора
     preproc, num_cols, cat_cols = _build_preprocessor(train_df, target)
@@ -933,6 +1022,10 @@ def train_fit(
         "categorical_features": cat_cols,
         "metrics": {"valid_mae": float(mae), "valid_rmse": float(rmse)},
         "conformal_eps_log": eps_conf,
+        "use_local_stats": use_local_stats,
+        "local_stats": grp if use_local_stats else None,
+        "local_global_mean": global_mean_price if use_local_stats else None,
+
     }
 
     model_out.parent.mkdir(parents=True, exist_ok=True)
@@ -963,6 +1056,15 @@ def predict_one(
 
     expected_num = artefact.get("numeric_features", [])
     expected_cat = artefact.get("categorical_features", [])
+    
+     # локальный якорь рынка
+    if artefact.get("use_local_stats"):
+        df["rooms_bucket"] = df["rooms"].apply(_rooms_bucket)
+        df = _attach_local_price_stats(
+            df,
+            artefact.get("local_stats"),
+            artefact.get("local_global_mean"),
+        )
 
     # гарантируем h3 и приведение типов
     df = _ensure_h3(df, res=7)
@@ -1328,6 +1430,15 @@ def predict_address(
     df = pd.DataFrame([obj])
     df = _coerce_types(df)
     df = _ensure_h3(df, res=7)
+    
+    if artefact.get("use_local_stats"):
+        df["rooms_bucket"] = df["rooms"].apply(_rooms_bucket)
+        df = _attach_local_price_stats(
+            df,
+            artefact.get("local_stats"),
+            artefact.get("local_global_mean"),
+        )
+
 
     # 6) Выравнивание под схему фич и заполнение пропусков
     df = _align_frame_to_schema(df, expected_num, expected_cat)

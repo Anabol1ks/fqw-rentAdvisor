@@ -42,7 +42,8 @@ train:
 		--model-out models/artefacts/rent_lgbm.joblib \
 		--target price_rub \
 		--log-target \
-		--with-intervals
+		--with-intervals \
+# 		--use-local-stats False
 
 predict-one:
 	python -m realval predict-one \
