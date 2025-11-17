@@ -854,6 +854,78 @@ def _rmse(y_true, y_pred) -> float:
         except TypeError:
             return float(mean_squared_error(y_true, y_pred) ** 0.5)
 
+
+def _build_explanation(
+    artefact: dict,
+    X: np.ndarray,
+    top_n: int = 8,
+) -> Optional[dict]:
+    """
+    Строит простое объяснение предсказания на основе LightGBM pred_contrib.
+
+    X — уже преобразованный (preprocessor.transform) вектор признаков формы (1, n_features).
+    Возвращает:
+      - base_value (базовый уровень модели),
+      - prediction_internal (base + сумма вкладов),
+      - top_features (список признаков с максимальным вкладом по модулю).
+    """
+    median_pipe = artefact.get("median")
+    preproc = artefact.get("preprocessor")
+    if median_pipe is None or preproc is None:
+        return None
+
+    # имена фич после препроцессора
+    try:
+        feature_names = preproc.get_feature_names_out()
+    except Exception:
+        feature_names = None
+
+    # стараемся получить contrib через Pipeline; если не получится — лезем до самой модели
+    try:
+        contrib = median_pipe.predict(X, pred_contrib=True)[0]
+    except TypeError:
+        try:
+            model = median_pipe.named_steps["model"]
+            contrib = model.predict(X, pred_contrib=True)[0]
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+    contrib = np.asarray(contrib, dtype=float)
+    if contrib.ndim != 1 or contrib.size < 2:
+        return None
+
+    # последний элемент — bias (base value)
+    bias = float(contrib[-1])
+    contrib_feat = contrib[:-1]
+
+    # подгоняем имена фич
+    if feature_names is not None and len(feature_names) == len(contrib_feat):
+        feat_names = [str(f) for f in feature_names]
+    else:
+        feat_names = [f"f_{i}" for i in range(len(contrib_feat))]
+
+    abs_c = np.abs(contrib_feat)
+    order = np.argsort(abs_c)[::-1][:top_n]
+
+    top = []
+    for idx in order:
+        top.append({
+            "feature": feat_names[idx],
+            "contribution": float(contrib_feat[idx]),
+            "abs_contribution": float(abs_c[idx]),
+        })
+
+    internal_pred = float(bias + contrib_feat.sum())
+    return {
+        "is_log_space": bool(artefact.get("log_target", False)),
+        "base_value": bias,
+        "prediction_internal": internal_pred,
+        "top_features": top,
+    }
+
+
 def _conformal_eps_log(y_true_log: np.ndarray, y_pred_log: np.ndarray, q: float = 0.9) -> float:
     """
     Квантиль абсолютной ошибки в лог-пространстве.
@@ -1085,7 +1157,7 @@ def predict_one(
         return float(np.exp(v)) if log_target else float(v)
 
     raw_pred = float(median_pipe.predict(X)[0])
-    y_hat = _inv(raw_pred)
+    y_hat = _inv(median_pipe.predict(X)[0])
 
     pi_low = pi_high = None
     eps_conf = artefact.get("conformal_eps_log")
@@ -1110,12 +1182,16 @@ def predict_one(
         pi_low, pi_high = low, high
 
 
+    explanation = _build_explanation(artefact, X, top_n=8)
+
     result = {
         "prediction": y_hat,
         "pi_low": pi_low,
         "pi_high": pi_high,
         "model_metrics": artefact.get("metrics", {}),
     }
+    if explanation is not None:
+        result["explanation"] = explanation
 
     if out:
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -1494,6 +1570,8 @@ def predict_address(
                 max_radius_km=comps_max_radius_km,
             )
 
+    explanation = _build_explanation(artefact, X, top_n=8)
+    
     result = {
         "input": {
             "address": address, "city": city, "rooms": rooms, "area_total": area_total,
@@ -1511,7 +1589,9 @@ def predict_address(
         "pi_high": pi_high,
         "comparables": comparables,
     }
-
+    
+    if explanation is not None:
+        result["explanation"] = explanation
 
     if out:
         out.parent.mkdir(parents=True, exist_ok=True)

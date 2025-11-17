@@ -1,13 +1,13 @@
 {
 	"city": "Москва",
-	"address": "Нежинская улица, 8к1",
+	"address": "Нежинская улица, 1к1",
 	"rooms": 2,
-	"area_total": 103,
-	"area_living": 50,
+	"area_total": 90,
+	"area_living": 65,
 	"area_kitchen": 20, 
-	"floor": 5,
-	"floors_total": 24,
-	"year_built": 2005,
+	"floor": 24,
+	"floors_total": 31,
+	"year_built": 2008,
 	"house_material": "монолит",
 	"_comment": "цена 170 000"
 }
