@@ -71,3 +71,6 @@ predict-address-comps:
 llm_toon_i:
 	pip install -U langchain langchain-gigachat
 	pip install git+https://github.com/toon-format/toon-python.git
+
+pr_serve:
+	uvicorn realval.http_app:app --reload --port 8000

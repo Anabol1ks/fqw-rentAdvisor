@@ -14,3 +14,8 @@ geopy>=2.4
 requests>=2.32
 tenacity>=8.3
 shapely>=2.0
+fastapi
+uvicorn
+langchain>=0.1.0
+langchain-gigachat>=0.1.0
+toon-format @ git+https://github.com/toon-format/toon-python.git
