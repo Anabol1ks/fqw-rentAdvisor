@@ -65,4 +65,9 @@ predict-address-comps:
 		--comps-path data/features/base.parquet \
 		--comps-k 5 \
 		--comps-max-radius-km 3 \
+		--with-text \
 		--out models/reports/predict_address_with_comps.json
+
+llm_toon_i:
+	pip install -U langchain langchain-gigachat
+	pip install git+https://github.com/toon-format/toon-python.git

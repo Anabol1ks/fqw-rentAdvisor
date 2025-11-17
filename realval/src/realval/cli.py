@@ -2,6 +2,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Optional, List, Tuple
+from .llm_text import generate_text_blocks, LLMConfig
+
 
 import re
 from datetime import datetime, timedelta, timezone
@@ -329,8 +331,8 @@ def _find_comparables(
     target_rb = _rooms_bucket(target.get("rooms"))
 
     # фильтр по bucket (сначала строгий, потом fallback)
-    same_rb = df[df["_rooms_bucket"] == target_rb]
-    use_df = same_rb if not same_rb.empty else df
+    same_rb = df[df["_rooms_bucket"] == target_rb].copy()
+    use_df = same_rb if not same_rb.empty else df.copy()
 
     # похожесть по площади: штраф за отклонение
     tgt_area = float(target.get("area_total") or 0)
@@ -854,6 +856,104 @@ def _rmse(y_true, y_pred) -> float:
         except TypeError:
             return float(mean_squared_error(y_true, y_pred) ** 0.5)
 
+import uuid
+from datetime import datetime, timezone
+
+def _fmt_rub(v: float) -> str:
+    try:
+        return f"{int(round(v)):,}".replace(",", " ")
+    except Exception:
+        return str(v)
+
+def _build_text_blocks(report: dict) -> dict:
+    """
+    Простая шаблонная генерация текста.
+    Позже сюда можно подложить LangChain/LLM.
+    """
+    obj = report.get("object", {})
+    pricing = report.get("pricing", {})
+    explanation = report.get("explanation") or {}
+    comps = report.get("comparables") or []
+
+    addr = obj.get("address") or "объект"
+    city = obj.get("city") or ""
+    rooms = obj.get("rooms")
+    area_total = obj.get("area_total")
+
+    pred = pricing.get("prediction_rub")
+    lo = pricing.get("interval_low_rub")
+    hi = pricing.get("interval_high_rub")
+
+    # --- краткое резюме ---
+    parts = []
+    if city:
+        parts.append(f"Объект в городе {city}")
+    if addr:
+        parts.append(f"по адресу «{addr}»")
+    header = ", ".join(parts) if parts else "Объект недвижимости"
+
+    summary_short = f"{header}. "
+
+    if pred is not None:
+        summary_short += f"Оценочная ставка аренды: ~{_fmt_rub(pred)} ₽/мес"
+        if lo is not None and hi is not None:
+            summary_short += f" (диапазон { _fmt_rub(lo) }–{ _fmt_rub(hi) } ₽/мес)."
+        else:
+            summary_short += "."
+
+    # --- факторы ---
+    factors_summary: list[str] = []
+
+    top_feats = (explanation or {}).get("top_features") or []
+    # немного «русифицируем» самые частые фичи
+    for feat in top_feats:
+        name = feat.get("feature")
+        contrib = float(feat.get("contribution", 0.0))
+        if not name:
+            continue
+
+        direction = "повышает" if contrib > 0 else "снижает"
+        contrib_abs = abs(contrib)
+
+        if name == "area_total":
+            factors_summary.append(
+                f"Большая общая площадь квартиры (~{area_total} м²) заметно {direction} прогнозируемую стоимость."
+            )
+        elif name == "dist_to_center_km":
+            factors_summary.append(
+                f"Удалённость от центра города {direction} ожидаемую цену аренды."
+            )
+        elif name.startswith("house_material_"):
+            mat = name.split("house_material_", 1)[1]
+            factors_summary.append(
+                f"Материал дома («{mat}») слабо влияет на итоговую оценку и лишь незначительно её {direction}."
+            )
+        elif name == "floor":
+            factors_summary.append(
+                f"Этаж расположения квартиры (этаж {obj.get('floor')}) немного {direction} стоимость аренды."
+            )
+        elif name == "metro_walk_min":
+            factors_summary.append(
+                f"Время пешей доступности до метро (≈{obj.get('metro_walk_min') or 'N'} минут) слегка {direction} цену."
+            )
+        else:
+            # fallback
+            factors_summary.append(f"Признак «{name}» умеренно {direction} оценку объекта (вклад {contrib_abs:.2f} в лог-пространстве).")
+
+        if len(factors_summary) >= 5:
+            break
+
+    # --- длинное резюме (для PDF, можно упрощённо) ---
+    summary_long = summary_short
+    if factors_summary:
+        summary_long += " Наибольшее влияние на оценку оказывают следующие факторы: " + " ".join(factors_summary)
+
+    return {
+        "summary_short": summary_short,
+        "summary_long": summary_long,
+        "factors_summary": factors_summary,
+    }
+
 
 def _build_explanation(
     artefact: dict,
@@ -1324,6 +1424,11 @@ def predict_address(
     ),
     comps_k: int = typer.Option(5, help="Сколько компараблов возвращать"),
     comps_max_radius_km: float = typer.Option(5.0, help="Максимальный радиус поиска компараблов, км"),
+    with_text: bool = typer.Option(
+        False,
+        "--with-text",
+        help="Сгенерировать текстовое объяснение через GigaChat",
+    ),
 
 ):
     """
@@ -1572,30 +1677,107 @@ def predict_address(
 
     explanation = _build_explanation(artefact, X, top_n=8)
     
-    result = {
-        "input": {
-            "address": address, "city": city, "rooms": rooms, "area_total": area_total,
-            "area_living": area_living, "area_kitchen": area_kitchen,
-            "floor": floor, "floors_total": floors_total, "year_built": year_built,
-            "house_material": house_material, "condition": condition
-        },
-        "enriched": {
-            "lat": lat, "lon": lon, "dist_to_center_km": dist_to_center_km,
-            "metro_station": metro_name, "dist_to_metro_m": dist_to_metro_m,
-            "metro_walk_min": metro_walk_min, "density_500m": density_500m
-        },
-        "prediction": y_hat,
-        "pi_low": pi_low,
-        "pi_high": pi_high,
-        "comparables": comparables,
-    }
-    
-    if explanation is not None:
-        result["explanation"] = explanation
+    report_id = str(uuid.uuid4())
+    generated_at = datetime.now(timezone.utc).isoformat()
 
+    obj_block = {
+        "address": address,
+        "city": city,
+        "rooms": rooms,
+        "area_total": area_total,
+        "area_living": area_living,
+        "area_kitchen": area_kitchen,
+        "floor": floor,
+        "floors_total": floors_total,
+        "year_built": year_built,
+        "house_material": house_material,
+        "condition": condition,
+    }
+
+    enriched_block = {
+        "lat": lat,
+        "lon": lon,
+        "dist_to_center_km": dist_to_center_km,
+        "metro_station": metro_name,
+        "dist_to_metro_m": dist_to_metro_m,
+        "metro_walk_min": metro_walk_min,
+        "density_500m": density_500m,
+    }
+
+    pricing_block = {
+        "prediction_rub": y_hat,
+        "interval_low_rub": pi_low,
+        "interval_high_rub": pi_high,
+        "currency": "RUB",
+        "deal_type": "rent_long",
+    }
+
+    model_metrics = artefact.get("metrics", {})
+    model_info = {
+        "model_name": "rent_lgbm",
+        "target": artefact.get("target"),
+        "log_target": artefact.get("log_target", False),
+        "valid_mae": model_metrics.get("valid_mae"),
+        "valid_rmse": model_metrics.get("valid_rmse"),
+    }
+
+    report = {
+        "report_id": report_id,
+        "generated_at": generated_at,
+        "version": "realval_report_v1",
+        "object": obj_block,
+        "enriched": enriched_block,
+        "pricing": pricing_block,
+        "comparables": comparables,
+        "explanation": explanation,
+        "model_info": model_info,
+    }
+
+    # текстовые блоки (пока шаблоны, потом можно переключить на LLM)
+    if with_text:
+        try:
+            text_blocks = generate_text_blocks(report)
+            report["text"] = text_blocks
+        except Exception as e:
+            typer.echo(f"[llm warning] не удалось сгенерировать текст: {e}", err=True)
+    else: 
+        report["text_blocks"] = _build_text_blocks(report)
+        typer.echo(f"используется шаблонный текст")
+            
+
+
+    # финальный вывод для CLI
     if out:
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         typer.echo(f"[predict-address] -> {out}")
     else:
-        typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+        typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+        
+    # result = {
+    #     "input": {
+    #         "address": address, "city": city, "rooms": rooms, "area_total": area_total,
+    #         "area_living": area_living, "area_kitchen": area_kitchen,
+    #         "floor": floor, "floors_total": floors_total, "year_built": year_built,
+    #         "house_material": house_material, "condition": condition
+    #     },
+    #     "enriched": {
+    #         "lat": lat, "lon": lon, "dist_to_center_km": dist_to_center_km,
+    #         "metro_station": metro_name, "dist_to_metro_m": dist_to_metro_m,
+    #         "metro_walk_min": metro_walk_min, "density_500m": density_500m
+    #     },
+    #     "prediction": y_hat,
+    #     "pi_low": pi_low,
+    #     "pi_high": pi_high,
+    #     "comparables": comparables,
+    # }
+    
+    # if explanation is not None:
+    #     result["explanation"] = explanation
+
+    # if out:
+    #     out.parent.mkdir(parents=True, exist_ok=True)
+    #     out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    #     typer.echo(f"[predict-address] -> {out}")
+    # else:
+    #     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
