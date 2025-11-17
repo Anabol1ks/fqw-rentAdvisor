@@ -4,7 +4,7 @@ CITY = Москва
 
 # Скрапинг аренды в Москве (resilient режим, рекомендуется)
 scrape:
-	pwsh -NoProfile -Command "Set-Location -LiteralPath 'c:\Users\grigo\Documents\GitGrisha\fqw-rentAdvisor\сырой скрайп'; go run ./cmd/scrape_yandex --city=moskva --start=1 --pages=50 --max-empty-pages=2 --parallel=3 --delay-min=1200ms --delay-max=2000ms --deal=rent --max-items=500 --use-referer=true --captcha-cooldown=2m --max-retries=3 | Out-String -Width 200"
+	pwsh -NoProfile -Command "Set-Location -LiteralPath 'c:\Users\grigo\Documents\GitGrisha\fqw-rentAdvisor\сырой скрайп'; go run ./cmd/scrape_yandex --city=moskva --start=1 --pages=50 --max-empty-pages=2 --parallel=4 --delay-min=1200ms --delay-max=2000ms --deal=rent --max-items=500 --use-referer=true --captcha-cooldown=2m --max-retries=3 | Out-String -Width 200"
 
 # Скрапинг продажи в Москве
 scrape-sale:
@@ -50,7 +50,7 @@ copy-raw:
 # 	make migrate
 pipeline:
 	make norm
-	make geocode
+# 	make geocode
 	make enrich
 	make dedupe
 

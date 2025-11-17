@@ -43,7 +43,7 @@ train:
 		--target price_rub \
 		--log-target \
 		--with-intervals \
-# 		--use-local-stats False
+		--use-local-stats 
 
 predict-one:
 	python -m realval predict-one \

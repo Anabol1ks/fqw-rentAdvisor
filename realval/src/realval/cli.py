@@ -354,7 +354,7 @@ def _find_comparables(
         "rooms", "area_total", "area_living", "area_kitchen",
         "floor", "floors_total", "year_built", "house_material", "condition",
         "lat", "lon", "dist_to_metro_m", "dist_to_center_km", "density_500m",
-        "metro_station", "metro_walk_min", "address_norm", "url",
+        "metro_station", "metro_walk_min", "address_norm", "url",  # <-- уже есть
     ]
     result = []
     for _, r in use_df.iterrows():

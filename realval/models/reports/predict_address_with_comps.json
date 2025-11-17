@@ -1,0 +1,225 @@
+{
+  "report_id": "0acbff6b-5a35-4eaa-9976-74f3f5c1b58d",
+  "generated_at": "2025-11-17T22:11:11.184100+00:00",
+  "version": "realval_report_v1",
+  "object": {
+    "address": "Нежинская улица, 1к1",
+    "city": "Москва",
+    "rooms": 2,
+    "area_total": 90,
+    "area_living": 65,
+    "area_kitchen": 20,
+    "floor": 24,
+    "floors_total": 31,
+    "year_built": 2008,
+    "house_material": "монолит",
+    "condition": null
+  },
+  "enriched": {
+    "lat": 55.7190196,
+    "lon": 37.4788686,
+    "dist_to_center_km": 9.582564978642905,
+    "metro_station": "Славянский бульвар",
+    "dist_to_metro_m": 1298.9228372170382,
+    "metro_walk_min": 17,
+    "density_500m": 10
+  },
+  "pricing": {
+    "prediction_rub": 174557.0072903381,
+    "interval_low_rub": 130685.14206500581,
+    "interval_high_rub": 233156.94739806454,
+    "currency": "RUB",
+    "deal_type": "rent_long"
+  },
+  "comparables": [
+    {
+      "deal_type": "rent_long",
+      "city": "Москва",
+      "district": "",
+      "price_rub": 170000.0,
+      "price_per_m2": 1888.89,
+      "rooms": 2,
+      "area_total": 90.0,
+      "area_living": 65.0,
+      "area_kitchen": 20.0,
+      "floor": 24.0,
+      "floors_total": 31.0,
+      "year_built": 2008,
+      "house_material": "монолитный",
+      "condition": null,
+      "lat": 55.71897,
+      "lon": 37.47891,
+      "dist_to_metro_m": 1305.0149691660288,
+      "dist_to_center_km": 9.582581990715461,
+      "density_500m": 10.0,
+      "metro_station": "Славянский бульвар",
+      "metro_walk_min": 17.0,
+      "address_norm": "Москва, Нежинская улица, 1к1",
+      "url": "https://realty.yandex.ru/offer/5180127926972954744/",
+      "distance_km": 0.006094373627761159
+    },
+    {
+      "deal_type": "rent_long",
+      "city": "Москва",
+      "district": "",
+      "price_rub": 195000.0,
+      "price_per_m2": 2349.4,
+      "rooms": 2,
+      "area_total": 83.0,
+      "area_living": 60.0,
+      "area_kitchen": 16.0,
+      "floor": 14.0,
+      "floors_total": 31.0,
+      "year_built": 2008,
+      "house_material": "монолитный",
+      "condition": null,
+      "lat": 55.71897,
+      "lon": 37.47891,
+      "dist_to_metro_m": 1305.0149691660288,
+      "dist_to_center_km": 9.582581990715461,
+      "density_500m": 10.0,
+      "metro_station": "Славянский бульвар",
+      "metro_walk_min": 17.0,
+      "address_norm": "Москва, Нежинская улица, 1к1",
+      "url": "https://realty.yandex.ru/offer/5180127926972926664/",
+      "distance_km": 0.006094373627761159
+    },
+    {
+      "deal_type": "rent_long",
+      "city": "Москва",
+      "district": "",
+      "price_rub": 89500.0,
+      "price_per_m2": 1491.67,
+      "rooms": 2,
+      "area_total": 60.0,
+      "area_living": null,
+      "area_kitchen": null,
+      "floor": 5.0,
+      "floors_total": 18.0,
+      "year_built": 2024,
+      "house_material": "монолитный",
+      "condition": null,
+      "lat": 55.72226,
+      "lon": 37.473637,
+      "dist_to_metro_m": 851.871498749541,
+      "dist_to_center_km": 9.735757900460433,
+      "density_500m": 6.0,
+      "metro_station": "Славянский бульвар",
+      "metro_walk_min": 11.0,
+      "address_norm": "Москва, Давыдковская улица, 10",
+      "url": "https://realty.yandex.ru/offer/456424940342371369/",
+      "distance_km": 0.48701042441991
+    },
+    {
+      "deal_type": "rent_long",
+      "city": "Москва",
+      "district": "",
+      "price_rub": 180000.0,
+      "price_per_m2": 4285.71,
+      "rooms": 2,
+      "area_total": 42.0,
+      "area_living": null,
+      "area_kitchen": 10.0,
+      "floor": 3.0,
+      "floors_total": 25.0,
+      "year_built": 2021,
+      "house_material": "монолитный",
+      "condition": null,
+      "lat": 55.71537,
+      "lon": 37.47452,
+      "dist_to_metro_m": 1278.5397016400036,
+      "dist_to_center_km": 10.00547174590413,
+      "density_500m": 10.0,
+      "metro_station": "Матвеевское",
+      "metro_walk_min": 16.0,
+      "address_norm": "Москва, Нежинская улица, 5к2",
+      "url": "https://realty.yandex.ru/offer/4728441677484037199/",
+      "distance_km": 0.4887455230426671
+    },
+    {
+      "deal_type": "rent_long",
+      "city": "Москва",
+      "district": "",
+      "price_rub": 450000.0,
+      "price_per_m2": 4736.84,
+      "rooms": 2,
+      "area_total": 95.0,
+      "area_living": 40.0,
+      "area_kitchen": 20.0,
+      "floor": 6.0,
+      "floors_total": 14.0,
+      "year_built": 2023,
+      "house_material": "монолитный",
+      "condition": null,
+      "lat": 55.71696,
+      "lon": 37.496517,
+      "dist_to_metro_m": 1580.956502724459,
+      "dist_to_center_km": 8.707832891741026,
+      "density_500m": 5.0,
+      "metro_station": "Поклонная",
+      "metro_walk_min": 20.0,
+      "address_norm": "Москва, проспект Генерала Дорохова, 39к1В",
+      "url": "https://realty.yandex.ru/offer/5180127926972802785/",
+      "distance_km": 1.1288369714111253
+    }
+  ],
+  "explanation": {
+    "is_log_space": true,
+    "base_value": 11.322778413785743,
+    "prediction_internal": 12.070006656616163,
+    "top_features": [
+      {
+        "feature": "area_total",
+        "contribution": 0.557456188079118,
+        "abs_contribution": 0.557456188079118
+      },
+      {
+        "feature": "dist_to_center_km",
+        "contribution": 0.1455345404339182,
+        "abs_contribution": 0.1455345404339182
+      },
+      {
+        "feature": "lon",
+        "contribution": 0.07279528369990092,
+        "abs_contribution": 0.07279528369990092
+      },
+      {
+        "feature": "house_material_монолитный",
+        "contribution": -0.048281389974910556,
+        "abs_contribution": 0.048281389974910556
+      },
+      {
+        "feature": "floor",
+        "contribution": 0.04094512736790623,
+        "abs_contribution": 0.04094512736790623
+      },
+      {
+        "feature": "year_built",
+        "contribution": -0.0347071687131497,
+        "abs_contribution": 0.0347071687131497
+      },
+      {
+        "feature": "area_living",
+        "contribution": -0.031538859162400394,
+        "abs_contribution": 0.031538859162400394
+      },
+      {
+        "feature": "area_kitchen",
+        "contribution": 0.029708271077068613,
+        "abs_contribution": 0.029708271077068613
+      }
+    ]
+  },
+  "model_info": {
+    "model_name": "rent_lgbm",
+    "target": "price_rub",
+    "log_target": true,
+    "valid_mae": 14371.287954425276,
+    "valid_rmse": 24303.216079234124
+  },
+  "text": {
+    "summary_short": "Квартира в городе Москва, по адресу «Нежинская улица, 1к1». Оценочная ставка долгосрочной аренды: около 174 557 ₽ в месяц (ожидаемый диапазон 130 685–233 157 ₽).",
+    "summary_long": "```json\n{\n  \"summary_short\": \"Ежемесячная аренда двухкомнатной квартиры на Нежинской улице, 1к1 в Москве оценивается в 175 000 рублей, с диапазоном от 131 000 до 233 000 рублей.\",\n  \"summary_long\": \"Аренда рассматриваемой двухкомнатной квартиры площадью 90 кв.м., расположенной по адресу Нежинская улица, 1к1, в Москве предлагается по цене около 175 000 рублей в месяц. Диапазон возможного варьирования цен составляет от 131 000 до 233 000 рублей в зависимости от рыночных условий и факторов привлекательности объекта.\\n\\nФакторы, формирующие такую стоимость аренды, включают близость к станции метро \\\"Славянский бульвар\\\", расстояние до центра города всего в 9 км, комфортную инфраструктуру района и современные строительные материалы дома (монолит). Площадь квартиры значительная, что повышает её привлекательность среди арендаторов, предпочитающих просторное жильё. Год постройки относительно недавний (2008), что обеспечивает хорошее техническое состояние здания и инженерных коммуникаций.\",\n  \"factors_summary\": [\n    \"Большие размеры квартиры\",\n    \"Комфортное расположение рядом с метро\",\n    \"Недавняя постройка дома\",\n    \"Монолитная технология строительства\",\n    \"Разумное удаление от центра города\"\n  ]\n}\n```",
+    "factors_summary": []
+  }
+}
