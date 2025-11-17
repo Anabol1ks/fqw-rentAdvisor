@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 import sys
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware  # <-- добавить
 from pydantic import BaseModel, Field
 
 app = FastAPI(
@@ -15,6 +16,15 @@ app = FastAPI(
     version="1.0.0",
     description="HTTP-обертка над realval CLI для оценки аренды",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # В продакшене укажите конкретные домены
+    allow_credentials=True,
+    allow_methods=["*"],  # Или ["GET", "POST"]
+    allow_headers=["*"],
+)
+
 
 # Где лежит модель (можно переопределить через ENV)
 MODEL_PATH = os.getenv("REALVAL_MODEL_PATH", "models/artefacts/rent_lgbm.joblib")
@@ -38,6 +48,43 @@ class AddressRequest(BaseModel):
         description="Генерировать текстовое объяснение через GigaChat",
     )
 
+@app.get("/health")
+def health_check():
+    """Быстрая проверка работоспособности сервиса"""
+    return {
+        "status": "ok",
+        "service": "RealVal ML API",
+        "model_path": MODEL_PATH,
+        "model_exists": Path(MODEL_PATH).exists(),
+    }
+
+@app.get("/health/deep")
+def deep_health_check():
+    """Проверка с загрузкой модели"""
+    from joblib import load
+    try:
+        model_exists = Path(MODEL_PATH).exists()
+        if model_exists:
+            # Пробуем загрузить модель
+            _ = load(MODEL_PATH)
+            return {
+                "status": "ok",
+                "model_loaded": True,
+                "model_path": MODEL_PATH,
+            }
+        else:
+            return {
+                "status": "error",
+                "model_loaded": False,
+                "model_path": MODEL_PATH,
+                "error": "Model file not found",
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "model_loaded": False,
+            "error": str(e),
+        }
 
 @app.post("/v1/predict/address")
 def predict_address(req: AddressRequest):
