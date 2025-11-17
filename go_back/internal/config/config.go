@@ -11,6 +11,7 @@ type Config struct {
 	Port         string
 	MLServiceURL string
 	MLTimeoutSec int
+	DSN_URL      string
 }
 
 func Load(log *zap.Logger) *Config {
@@ -26,6 +27,7 @@ func Load(log *zap.Logger) *Config {
 		Port:         getEnv("PORT", "8080", log),
 		MLServiceURL: getEnv("ML_SERVICE_URL", "http://localhost:8000", log),
 		MLTimeoutSec: ml_timeout,
+		DSN_URL:      getEnv("POSTGRES_DSN_URL", "", log),
 	}
 }
 

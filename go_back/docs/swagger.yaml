@@ -1,0 +1,175 @@
+definitions:
+  handlers.AddressValuationComparableSummary:
+    properties:
+      area_total:
+        example: 83
+        type: number
+      distance_km:
+        example: 0.01
+        type: number
+      metro_station:
+        example: Славянский бульвар
+        type: string
+      price_rub:
+        example: 195000
+        type: number
+      rooms:
+        example: 2
+        type: integer
+    type: object
+  handlers.AddressValuationObjectSummary:
+    properties:
+      address:
+        example: Нежинская улица, 1к1
+        type: string
+      area_total:
+        example: 90
+        type: number
+      city:
+        example: Москва
+        type: string
+      floor:
+        example: 24
+        type: integer
+      floors_total:
+        example: 31
+        type: integer
+      house_material:
+        example: монолит
+        type: string
+      rooms:
+        example: 2
+        type: integer
+      year_built:
+        example: 2008
+        type: integer
+    type: object
+  handlers.AddressValuationPriceSummary:
+    properties:
+      currency:
+        example: RUB
+        type: string
+      deal_type:
+        example: rent_long
+        type: string
+      interval_high_rub:
+        example: 228504.7
+        type: number
+      interval_low_rub:
+        example: 120077.1
+        type: number
+      prediction_rub:
+        example: 165644.8
+        type: number
+    type: object
+  handlers.AddressValuationRequest:
+    properties:
+      address:
+        example: Нежинская улица, 1к1
+        type: string
+      area_kitchen:
+        example: 20
+        type: number
+      area_living:
+        example: 65
+        type: number
+      area_total:
+        example: 90
+        type: number
+      city:
+        example: Москва
+        type: string
+      condition:
+        example: без отделки
+        type: string
+      floor:
+        example: 24
+        type: integer
+      floors_total:
+        example: 31
+        type: integer
+      house_material:
+        example: монолит
+        type: string
+      rooms:
+        example: 2
+        type: integer
+      with_text:
+        example: true
+        type: boolean
+      year_built:
+        example: 2008
+        type: integer
+    required:
+    - address
+    - area_total
+    - city
+    - rooms
+    type: object
+  handlers.AddressValuationResponse:
+    properties:
+      comparables:
+        items:
+          $ref: '#/definitions/handlers.AddressValuationComparableSummary'
+        type: array
+      object:
+        $ref: '#/definitions/handlers.AddressValuationObjectSummary'
+      price:
+        $ref: '#/definitions/handlers.AddressValuationPriceSummary'
+      text:
+        $ref: '#/definitions/handlers.AddressValuationTextSummary'
+    type: object
+  handlers.AddressValuationTextSummary:
+    properties:
+      factors_summary:
+        items:
+          type: string
+        type: array
+      summary_long:
+        example: Развёрнутое описание оценки...
+        type: string
+      summary_short:
+        example: Квартира в городе Москва...
+        type: string
+    type: object
+  handlers.ErrorResponse:
+    properties:
+      error:
+        example: something went wrong
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /api/v1/valuation/address:
+    post:
+      consumes:
+      - application/json
+      description: Вызывает ML-сервис RealVal для расчёта рыночной ставки аренды и
+        возвращает краткий отчёт
+      parameters:
+      - description: Параметры квартиры для оценки
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.AddressValuationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.AddressValuationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Оценка аренды квартиры по адресу
+      tags:
+      - valuation
+swagger: "2.0"

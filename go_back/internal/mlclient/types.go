@@ -1,8 +1,7 @@
 package mlclient
 
-import "time"
-
 // То, что мы отправляем в Python /v1/predict/address
+// PredictAddressRequest — запрос к ML-сервису
 type PredictAddressRequest struct {
 	City          string   `json:"city"`
 	Address       string   `json:"address"`
@@ -15,46 +14,44 @@ type PredictAddressRequest struct {
 	YearBuilt     *int     `json:"year_built,omitempty"`
 	HouseMaterial *string  `json:"house_material,omitempty"`
 	Condition     *string  `json:"condition,omitempty"`
-	WithText      bool     `json:"with_text"` // хотим сразу текст от LLM
+	WithText      bool     `json:"with_text"`
 }
 
-// Ниже — структуры под JSON-отчёт Python-сервиса (realval_report_v1)
-
+// Report — полный ответ от ML-сервиса
 type Report struct {
-	ReportID    string         `json:"report_id"`
-	GeneratedAt time.Time      `json:"generated_at"`
-	Version     string         `json:"version"`
-	Object      ReportObject   `json:"object"`
-	Enriched    ReportEnriched `json:"enriched"`
-	Pricing     Pricing        `json:"pricing"`
-	Comparables []Comparable   `json:"comparables"`
-	Explanation Explanation    `json:"explanation"`
-	ModelInfo   ModelInfo      `json:"model_info"`
-	Text        *TextBlocks    `json:"text,omitempty"`
+	Object      Object       `json:"object"`
+	Enriched    Enriched     `json:"enriched"`
+	Pricing     Pricing      `json:"pricing"`
+	Explanation Explanation  `json:"explanation"`
+	Text        *TextBlocks  `json:"text,omitempty"`
+	Comparables []Comparable `json:"comparables,omitempty"`
 }
 
-type ReportObject struct {
-	Address       string   `json:"address"`
+type Object struct {
 	City          string   `json:"city"`
+	Address       string   `json:"address"`
 	Rooms         int      `json:"rooms"`
 	AreaTotal     float64  `json:"area_total"`
-	AreaLiving    *float64 `json:"area_living"`
-	AreaKitchen   *float64 `json:"area_kitchen"`
-	Floor         *int     `json:"floor"`
-	FloorsTotal   *int     `json:"floors_total"`
-	YearBuilt     *int     `json:"year_built"`
-	HouseMaterial *string  `json:"house_material"`
-	Condition     *string  `json:"condition"`
+	AreaLiving    *float64 `json:"area_living,omitempty"`
+	AreaKitchen   *float64 `json:"area_kitchen,omitempty"`
+	Floor         *int     `json:"floor,omitempty"`
+	FloorsTotal   *int     `json:"floors_total,omitempty"`
+	YearBuilt     *int     `json:"year_built,omitempty"`
+	HouseMaterial *string  `json:"house_material,omitempty"`
+	Condition     *string  `json:"condition,omitempty"`
+	DealType      string   `json:"deal_type"`
 }
 
-type ReportEnriched struct {
-	Lat            *float64 `json:"lat"`
-	Lon            *float64 `json:"lon"`
-	DistToCenterKm *float64 `json:"dist_to_center_km"`
-	MetroStation   *string  `json:"metro_station"`
-	DistToMetroM   *float64 `json:"dist_to_metro_m"`
-	MetroWalkMin   *int     `json:"metro_walk_min"`
-	Density500m    *float64 `json:"density_500m"`
+type Enriched struct {
+	Lat            float64  `json:"lat"`
+	Lon            float64  `json:"lon"`
+	DistToMetroM   *float64 `json:"dist_to_metro_m,omitempty"`
+	DistToCenterKm *float64 `json:"dist_to_center_km,omitempty"`
+	Density500m    *float64 `json:"density_500m,omitempty"`
+	MetroWalkMin   *float64 `json:"metro_walk_min,omitempty"`
+	MetroStation   *string  `json:"metro_station,omitempty"`
+	District       *string  `json:"district,omitempty"`
+	H37            *string  `json:"h3_7,omitempty"`
 }
 
 type Pricing struct {
@@ -65,36 +62,29 @@ type Pricing struct {
 	DealType        string  `json:"deal_type"`
 }
 
-type Comparable struct {
-	DealType       string   `json:"deal_type"`
-	City           string   `json:"city"`
-	District       string   `json:"district"`
-	PriceRub       float64  `json:"price_rub"`
-	PricePerM2     float64  `json:"price_per_m2"`
-	Rooms          *int     `json:"rooms"`
-	AreaTotal      *float64 `json:"area_total"`
-	AreaLiving     *float64 `json:"area_living"`
-	AreaKitchen    *float64 `json:"area_kitchen"`
-	Floor          *int     `json:"floor"`
-	FloorsTotal    *int     `json:"floors_total"`
-	YearBuilt      *int     `json:"year_built"`
-	HouseMaterial  *string  `json:"house_material"`
-	Condition      *string  `json:"condition"`
-	Lat            *float64 `json:"lat"`
-	Lon            *float64 `json:"lon"`
-	DistToMetroM   *float64 `json:"dist_to_metro_m"`
-	DistToCenterKm *float64 `json:"dist_to_center_km"`
-	Density500m    *float64 `json:"density_500m"`
-	MetroStation   *string  `json:"metro_station"`
-	MetroWalkMin   *int     `json:"metro_walk_min"`
-	DistanceKm     *float64 `json:"distance_km"`
+type Explanation struct {
+	ModelName         string   `json:"model_name"`
+	UsedLocalStats    bool     `json:"used_local_stats"`
+	LocalStatsSummary *string  `json:"local_stats_summary,omitempty"`
+	DistanceToClosest *float64 `json:"distance_to_closest_km,omitempty"`
 }
 
-type Explanation struct {
-	IsLogSpace         bool                  `json:"is_log_space"`
-	BaseValue          float64               `json:"base_value"`
-	PredictionInternal float64               `json:"prediction_internal"`
-	TopFeatures        []FeatureContribution `json:"top_features"`
+type TextBlocks struct {
+	SummaryShort   string   `json:"summary_short"`
+	SummaryLong    string   `json:"summary_long"`
+	FactorsSummary []string `json:"factors_summary"`
+}
+
+type Comparable struct {
+	PriceRub     float64  `json:"price_rub"`
+	Rooms        *int     `json:"rooms,omitempty"`
+	AreaTotal    *float64 `json:"area_total,omitempty"`
+	Floor        *float64 `json:"floor,omitempty"`        // <-- ИЗМЕНЕНО: int → float64
+	FloorsTotal  *float64 `json:"floors_total,omitempty"` // <-- ИЗМЕНЕНО: int → float64
+	YearBuilt    *float64 `json:"year_built,omitempty"`   // <-- ИЗМЕНЕНО: int → float64
+	DistanceKm   *float64 `json:"distance_km,omitempty"`
+	MetroStation *string  `json:"metro_station,omitempty"`
+	Address      *string  `json:"address,omitempty"`
 }
 
 type FeatureContribution struct {
@@ -109,10 +99,4 @@ type ModelInfo struct {
 	LogTarget bool     `json:"log_target"`
 	ValidMAE  *float64 `json:"valid_mae"`
 	ValidRMSE *float64 `json:"valid_rmse"`
-}
-
-type TextBlocks struct {
-	SummaryShort   string   `json:"summary_short"`
-	SummaryLong    string   `json:"summary_long"`
-	FactorsSummary []string `json:"factors_summary"`
 }

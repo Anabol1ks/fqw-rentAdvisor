@@ -1,0 +1,250 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "contact": {}
+    },
+    "paths": {
+        "/api/v1/valuation/address": {
+            "post": {
+                "description": "Вызывает ML-сервис RealVal для расчёта рыночной ставки аренды и возвращает краткий отчёт",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "valuation"
+                ],
+                "summary": "Оценка аренды квартиры по адресу",
+                "parameters": [
+                    {
+                        "description": "Параметры квартиры для оценки",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.AddressValuationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.AddressValuationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "handlers.AddressValuationComparableSummary": {
+            "type": "object",
+            "properties": {
+                "area_total": {
+                    "type": "number",
+                    "example": 83
+                },
+                "distance_km": {
+                    "type": "number",
+                    "example": 0.01
+                },
+                "metro_station": {
+                    "type": "string",
+                    "example": "Славянский бульвар"
+                },
+                "price_rub": {
+                    "type": "number",
+                    "example": 195000
+                },
+                "rooms": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "handlers.AddressValuationObjectSummary": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string",
+                    "example": "Нежинская улица, 1к1"
+                },
+                "area_total": {
+                    "type": "number",
+                    "example": 90
+                },
+                "city": {
+                    "type": "string",
+                    "example": "Москва"
+                },
+                "floor": {
+                    "type": "integer",
+                    "example": 24
+                },
+                "floors_total": {
+                    "type": "integer",
+                    "example": 31
+                },
+                "house_material": {
+                    "type": "string",
+                    "example": "монолит"
+                },
+                "rooms": {
+                    "type": "integer",
+                    "example": 2
+                },
+                "year_built": {
+                    "type": "integer",
+                    "example": 2008
+                }
+            }
+        },
+        "handlers.AddressValuationPriceSummary": {
+            "type": "object",
+            "properties": {
+                "currency": {
+                    "type": "string",
+                    "example": "RUB"
+                },
+                "deal_type": {
+                    "type": "string",
+                    "example": "rent_long"
+                },
+                "interval_high_rub": {
+                    "type": "number",
+                    "example": 228504.7
+                },
+                "interval_low_rub": {
+                    "type": "number",
+                    "example": 120077.1
+                },
+                "prediction_rub": {
+                    "type": "number",
+                    "example": 165644.8
+                }
+            }
+        },
+        "handlers.AddressValuationRequest": {
+            "type": "object",
+            "required": [
+                "address",
+                "area_total",
+                "city",
+                "rooms"
+            ],
+            "properties": {
+                "address": {
+                    "type": "string",
+                    "example": "Нежинская улица, 1к1"
+                },
+                "area_kitchen": {
+                    "type": "number",
+                    "example": 20
+                },
+                "area_living": {
+                    "type": "number",
+                    "example": 65
+                },
+                "area_total": {
+                    "type": "number",
+                    "example": 90
+                },
+                "city": {
+                    "type": "string",
+                    "example": "Москва"
+                },
+                "condition": {
+                    "type": "string",
+                    "example": "без отделки"
+                },
+                "floor": {
+                    "type": "integer",
+                    "example": 24
+                },
+                "floors_total": {
+                    "type": "integer",
+                    "example": 31
+                },
+                "house_material": {
+                    "type": "string",
+                    "example": "монолит"
+                },
+                "rooms": {
+                    "type": "integer",
+                    "example": 2
+                },
+                "with_text": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "year_built": {
+                    "type": "integer",
+                    "example": 2008
+                }
+            }
+        },
+        "handlers.AddressValuationResponse": {
+            "type": "object",
+            "properties": {
+                "comparables": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.AddressValuationComparableSummary"
+                    }
+                },
+                "object": {
+                    "$ref": "#/definitions/handlers.AddressValuationObjectSummary"
+                },
+                "price": {
+                    "$ref": "#/definitions/handlers.AddressValuationPriceSummary"
+                },
+                "text": {
+                    "$ref": "#/definitions/handlers.AddressValuationTextSummary"
+                }
+            }
+        },
+        "handlers.AddressValuationTextSummary": {
+            "type": "object",
+            "properties": {
+                "factors_summary": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "summary_long": {
+                    "type": "string",
+                    "example": "Развёрнутое описание оценки..."
+                },
+                "summary_short": {
+                    "type": "string",
+                    "example": "Квартира в городе Москва..."
+                }
+            }
+        },
+        "handlers.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "something went wrong"
+                }
+            }
+        }
+    }
+}

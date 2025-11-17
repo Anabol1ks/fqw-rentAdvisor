@@ -1,7 +1,9 @@
 package main
 
 import (
+	_ "go_back/docs"
 	"go_back/internal/config"
+	"go_back/internal/database"
 	httpapi "go_back/internal/http"
 	"go_back/internal/logger"
 	"os"
@@ -18,7 +20,12 @@ func main() {
 	}
 	defer logger.Sync()
 	log := logger.L()
+
 	cfg := config.Load(log)
+
+	db := database.ConnectDB(cfg, log)
+	defer database.CloseDB(db, log)
+
 	r := httpapi.SetupRouter(cfg)
 	port := ":" + cfg.Port
 	if err := r.Run(port); err != nil {

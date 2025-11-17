@@ -5,6 +5,8 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"go_back/internal/config"
 	"go_back/internal/http/handlers"
@@ -12,8 +14,7 @@ import (
 )
 
 func SetupRouter(cfg *config.Config) *gin.Engine {
-	r := gin.New()
-	r.Use(gin.Recovery())
+	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
@@ -22,6 +23,8 @@ func SetupRouter(cfg *config.Config) *gin.Engine {
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 	}))
+
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.String(200, "ok")
