@@ -5,6 +5,8 @@ import { MLStatusIndicator } from '@/components/ml-status-indicator';
 import { ValuationForm } from '@/components/valuation-form';
 import { ValuationResult } from '@/components/valuation-result';
 import { ValuationList } from '@/components/valuation-list';
+import { AILoading } from '@/components/ai-loading';
+import { LoadingSkeleton } from '@/components/loading-skeleton';
 import { AddressValuationResponse } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -15,9 +17,16 @@ export default function Home() {
   const [result, setResult] = useState<AddressValuationResponse | null>(null);
   const [mlServiceOnline, setMlServiceOnline] = useState(true);
   const [activeTab, setActiveTab] = useState('form');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleValuationSuccess = (response: AddressValuationResponse) => {
     setResult(response);
+    setIsLoading(false);
+  };
+
+  const handleValuationStart = () => {
+    setIsLoading(true);
+    setResult(null);
   };
 
   return (
@@ -91,17 +100,24 @@ export default function Home() {
               </TabsList>
 
               <TabsContent value="form" className="space-y-6">
-                <ValuationForm
-                  onSuccess={handleValuationSuccess}
-                  mlServiceOnline={mlServiceOnline}
-                />
-                {result && (
+                {!isLoading && !result && (
+                  <ValuationForm
+                    onSuccess={handleValuationSuccess}
+                    onLoadingStart={handleValuationStart}
+                    mlServiceOnline={mlServiceOnline}
+                  />
+                )}
+                {isLoading && <AILoading />}
+                {result && !isLoading && (
                   <div className="space-y-4">
                     <ValuationResult data={result} />
                     <div className="flex justify-center">
                       <Button
                         variant="outline"
-                        onClick={() => setResult(null)}
+                        onClick={() => {
+                          setResult(null);
+                          setIsLoading(false);
+                        }}
                       >
                         Создать новую оценку
                       </Button>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { api, ValuationListItem } from '@/lib/api';
 import { Loader2, FileText } from 'lucide-react';
 import { toast } from 'sonner';
@@ -19,6 +20,7 @@ export function ValuationList() {
   const [items, setItems] = useState<ValuationListItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedData, setSelectedData] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   const loadList = async () => {
     setLoading(true);
@@ -37,12 +39,16 @@ export function ValuationList() {
   }, []);
 
   const handleViewDetails = async (id: string) => {
+    setLoadingDetails(true);
+    setSelectedId(id);
     try {
       const data = await api.getValuationById(id);
       setSelectedData(data);
-      setSelectedId(id);
     } catch (error) {
       toast.error('Ошибка при загрузке данных');
+      setSelectedId(null);
+    } finally {
+      setLoadingDetails(false);
     }
   };
 
@@ -64,11 +70,45 @@ export function ValuationList() {
     });
   };
 
+  const formatRooms = (rooms: number) => {
+    return rooms === 0 ? 'студия' : `${rooms} комн.`;
+  };
+
   if (loading) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-9 w-24" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className="p-4 rounded-lg border bg-card space-y-2"
+              >
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-4" />
+                      <Skeleton className="h-5 w-48" />
+                    </div>
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-2/3" />
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                  <div className="text-right space-y-2">
+                    <Skeleton className="h-6 w-24" />
+                    <Skeleton className="h-3 w-32" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     );
@@ -130,12 +170,25 @@ export function ValuationList() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedId} onOpenChange={() => setSelectedId(null)}>
+      <Dialog open={!!selectedId} onOpenChange={() => {
+        setSelectedId(null);
+        setSelectedData(null);
+        setLoadingDetails(false);
+      }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Детали отчета</DialogTitle>
           </DialogHeader>
-          {selectedData && <ValuationResult data={selectedData} />}
+          {loadingDetails ? (
+            <div className="py-8 space-y-4">
+              <div className="flex flex-col items-center justify-center space-y-4">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Загрузка данных...</p>
+              </div>
+            </div>
+          ) : (
+            selectedData && <ValuationResult data={selectedData} />
+          )}
         </DialogContent>
       </Dialog>
     </>

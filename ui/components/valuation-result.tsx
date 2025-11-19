@@ -24,6 +24,10 @@ export function ValuationResult({ data }: ValuationResultProps) {
     }).format(price);
   };
 
+  const formatRooms = (rooms: number) => {
+    return rooms === 0 ? 'студия' : `${rooms} комн.`;
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -67,7 +71,7 @@ export function ValuationResult({ data }: ValuationResultProps) {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Комнат</p>
-                <p className="font-medium">{data.object.rooms}</p>
+                <p className="font-medium">{formatRooms(data.object.rooms)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Площадь</p>

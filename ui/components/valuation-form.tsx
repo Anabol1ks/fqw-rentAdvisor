@@ -36,11 +36,13 @@ const CONDITION_OPTIONS = [
 
 interface ValuationFormProps {
 	onSuccess?: (response: AddressValuationResponse) => void
+	onLoadingStart?: () => void
 	mlServiceOnline: boolean
 }
 
 export function ValuationForm({
 	onSuccess,
+	onLoadingStart,
 	mlServiceOnline,
 }: ValuationFormProps) {
 	const [loading, setLoading] = useState(false)
@@ -62,6 +64,7 @@ export function ValuationForm({
 		}
 
 		setLoading(true)
+		onLoadingStart?.()
 		try {
 			const response = await api.createValuation({
 				...formData,
