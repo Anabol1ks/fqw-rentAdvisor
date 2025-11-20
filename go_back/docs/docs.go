@@ -15,6 +15,60 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/geocode/suggest": {
+            "get": {
+                "description": "Возвращает список подсказок адресов по запросу пользователя (через Yandex Geocoder)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "geocode"
+                ],
+                "summary": "Подсказки адресов",
+                "parameters": [
+                    {
+                        "minLength": 3,
+                        "type": "string",
+                        "description": "Поисковый запрос",
+                        "name": "query",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "maximum": 10,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 5,
+                        "description": "Максимум результатов",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.AddressSuggestionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/valuation": {
             "get": {
                 "description": "Возвращает общий список сохранённых оценок (thin-формат)",
@@ -205,6 +259,37 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "geocode.AddressSuggestion": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "latitude": {
+                    "type": "number"
+                },
+                "longitude": {
+                    "type": "number"
+                }
+            }
+        },
+        "handlers.AddressSuggestionResponse": {
+            "type": "object",
+            "properties": {
+                "from_cache": {
+                    "type": "boolean"
+                },
+                "suggestions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/geocode.AddressSuggestion"
+                    }
+                }
+            }
+        },
         "handlers.AddressValuationComparableSummary": {
             "type": "object",
             "properties": {

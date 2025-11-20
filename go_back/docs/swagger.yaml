@@ -1,4 +1,24 @@
 definitions:
+  geocode.AddressSuggestion:
+    properties:
+      address:
+        type: string
+      description:
+        type: string
+      latitude:
+        type: number
+      longitude:
+        type: number
+    type: object
+  handlers.AddressSuggestionResponse:
+    properties:
+      from_cache:
+        type: boolean
+      suggestions:
+        items:
+          $ref: '#/definitions/geocode.AddressSuggestion'
+        type: array
+    type: object
   handlers.AddressValuationComparableSummary:
     properties:
       area_total:
@@ -187,6 +207,44 @@ definitions:
 info:
   contact: {}
 paths:
+  /api/v1/geocode/suggest:
+    get:
+      consumes:
+      - application/json
+      description: Возвращает список подсказок адресов по запросу пользователя (через
+        Yandex Geocoder)
+      parameters:
+      - description: Поисковый запрос
+        in: query
+        minLength: 3
+        name: query
+        required: true
+        type: string
+      - default: 5
+        description: Максимум результатов
+        in: query
+        maximum: 10
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.AddressSuggestionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Подсказки адресов
+      tags:
+      - geocode
   /api/v1/valuation:
     get:
       consumes:
