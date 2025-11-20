@@ -57,6 +57,21 @@ type YandexGeocoderResponse struct {
 	} `json:"response"`
 }
 
+// cleanAddress удаляет префикс "Россия, Москва, " из адреса
+func cleanAddress(address string) string {
+	prefixes := []string{
+		"Россия, Москва, ",
+		"Россия, Москва,",
+		"Москва, ",
+	}
+	for _, prefix := range prefixes {
+		if len(address) > len(prefix) && address[:len(prefix)] == prefix {
+			return address[len(prefix):]
+		}
+	}
+	return address
+}
+
 // NewYandexClient создает новый клиент для Yandex Geocoder
 func NewYandexClient(apiKey string) *YandexClient {
 	return &YandexClient{
@@ -128,7 +143,7 @@ func (c *YandexClient) SuggestAddresses(ctx context.Context, query string, limit
 		fmt.Sscanf(geoObj.Point.Pos, "%f %f", &lon, &lat)
 
 		suggestion := AddressSuggestion{
-			Address:     metaData.Address.Formatted,
+			Address:     cleanAddress(metaData.Address.Formatted),
 			Description: geoObj.Description,
 			Latitude:    lat,
 			Longitude:   lon,

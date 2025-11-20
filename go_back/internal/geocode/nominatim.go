@@ -49,6 +49,23 @@ func NewNominatimClient() *NominatimClient {
 	}
 }
 
+// cleanAddressNominatim удаляет префикс из адреса Nominatim
+func cleanAddressNominatim(address string) string {
+	prefixes := []string{
+		"Россия, Москва, ",
+		"Россия, Москва,",
+		"Москва, Россия, ",
+		"Москва, Россия,",
+		"Москва, ",
+	}
+	for _, prefix := range prefixes {
+		if len(address) > len(prefix) && address[:len(prefix)] == prefix {
+			return address[len(prefix):]
+		}
+	}
+	return address
+}
+
 // SuggestAddresses ищет адреса по запросу через Nominatim
 func (c *NominatimClient) SuggestAddresses(ctx context.Context, query string, limit int) ([]AddressSuggestion, error) {
 	if query == "" {
@@ -116,7 +133,7 @@ func (c *NominatimClient) SuggestAddresses(ctx context.Context, query string, li
 		}
 
 		suggestion := AddressSuggestion{
-			Address:     item.DisplayName,
+			Address:     cleanAddressNominatim(item.DisplayName),
 			Description: description,
 			Latitude:    lat,
 			Longitude:   lon,
