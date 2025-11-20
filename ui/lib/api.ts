@@ -67,6 +67,19 @@ export interface ValuationListResponse {
   offset: number;
 }
 
+export interface AddressSuggestion {
+  address: string;
+  description: string;
+  latitude: number;
+  longitude: number;
+  // Примечание: Yandex Geocoder API не предоставляет данные о доме
+}
+
+export interface AddressSuggestionResponse {
+  suggestions: AddressSuggestion[];
+  from_cache: boolean;
+}
+
 export const api = {
   async checkMLHealth(): Promise<boolean> {
     try {
@@ -140,5 +153,27 @@ export const api = {
 
   getValuationPdfUrl(id: string): string {
     return `${API_BASE_URL}/api/v1/valuation/${id}/pdf`;
+  },
+
+  async searchAddress(query: string, limit: number = 5): Promise<AddressSuggestionResponse> {
+    if (query.length < 3) {
+      return { suggestions: [], from_cache: false };
+    }
+
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/geocode/suggest?query=${encodeURIComponent(query)}&limit=${limit}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to search address');
+    }
+
+    return response.json();
   },
 };

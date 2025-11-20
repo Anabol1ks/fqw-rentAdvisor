@@ -8,10 +8,15 @@ import (
 )
 
 type Config struct {
-	Port         string
-	MLServiceURL string
-	MLTimeoutSec int
-	DSN_URL      string
+	Port             string
+	MLServiceURL     string
+	MLTimeoutSec     int
+	DSN_URL          string
+	YandexGeoAPI     string
+	RedisAddr        string
+	RedisPassword    string
+	RedisDB          int
+	RedisCachePrefix string
 }
 
 func Load(log *zap.Logger) *Config {
@@ -23,11 +28,26 @@ func Load(log *zap.Logger) *Config {
 		)
 		panic("invalid ML_TIMEOUT_SEC value")
 	}
+
+	redisDBStr := getEnv("REDIS_DB", "0", log)
+	redisDB, err := strconv.Atoi(redisDBStr)
+	if err != nil {
+		log.Error("Invalid REDIS_DB value, must be an integer",
+			zap.String("value", redisDBStr),
+		)
+		redisDB = 0
+	}
+
 	return &Config{
-		Port:         getEnv("PORT", "8080", log),
-		MLServiceURL: getEnv("ML_SERVICE_URL", "http://localhost:8000", log),
-		MLTimeoutSec: ml_timeout,
-		DSN_URL:      getEnv("POSTGRES_DSN_URL", "", log),
+		Port:             getEnv("PORT", "8080", log),
+		MLServiceURL:     getEnv("ML_SERVICE_URL", "http://localhost:8000", log),
+		MLTimeoutSec:     ml_timeout,
+		DSN_URL:          getEnv("POSTGRES_DSN_URL", "", log),
+		YandexGeoAPI:     getEnv("YANDEX_GEO_API_KEY", "", log),
+		RedisAddr:        getEnv("REDIS_ADDR", "localhost:6379", log),
+		RedisPassword:    getEnv("REDIS_PASSWORD", "", log),
+		RedisDB:          redisDB,
+		RedisCachePrefix: getEnv("REDIS_CACHE_PREFIX", "rentadvisor:", log),
 	}
 }
 

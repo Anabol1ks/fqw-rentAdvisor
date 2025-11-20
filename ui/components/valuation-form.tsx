@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { AddressAutocomplete } from '@/components/address-autocomplete'
 import {
 	Select,
 	SelectContent,
@@ -22,6 +23,7 @@ import {
 	api,
 	AddressValuationRequest,
 	AddressValuationResponse,
+	AddressSuggestion,
 } from '@/lib/api'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -87,6 +89,13 @@ export function ValuationForm({
 		setFormData(prev => ({ ...prev, [field]: value }))
 	}
 
+	// Обработчик выбора адреса (только заполнение адреса)
+	const handleAddressSelect = (suggestion: AddressSuggestion) => {
+		// Yandex Geocoder API не предоставляет данные о доме
+		// Для автозаполнения этих полей нужен другой API
+		setFormData(prev => ({ ...prev, address: suggestion.address }))
+	}
+
 	return (
 		<Card className='w-full'>
 			<CardHeader>
@@ -100,11 +109,12 @@ export function ValuationForm({
 					<div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
 						<div className='space-y-2'>
 							<Label htmlFor='address'>Адрес *</Label>
-							<Input
+							<AddressAutocomplete
 								id='address'
 								placeholder='Нежинская улица, 1к1'
 								value={formData.address || ''}
-								onChange={e => updateField('address', e.target.value)}
+								onChange={(value) => updateField('address', value)}
+								onSelect={handleAddressSelect}
 								required
 							/>
 						</div>
@@ -218,7 +228,7 @@ export function ValuationForm({
 						</div>
 
 						<div className='space-y-2'>
-							<Label htmlFor='floors_total'>Этажей в доме</Label>
+						<Label htmlFor='floors_total'>Этажей в доме</Label>
 							<Input
 								id='floors_total'
 								type='number'
@@ -239,8 +249,8 @@ export function ValuationForm({
 							/>
 						</div>
 
-						<div className='space-y-2'>
-							<Label htmlFor='year_built'>Год постройки</Label>
+					<div className='space-y-2'>
+						<Label htmlFor='year_built'>Год постройки</Label>
 							<Input
 								id='year_built'
 								type='number'
@@ -260,8 +270,8 @@ export function ValuationForm({
 							/>
 						</div>
 
-						<div className='space-y-2'>
-							<Label htmlFor='house_material'>Материал дома</Label>
+					<div className='space-y-2'>
+						<Label htmlFor='house_material'>Материал дома</Label>
 							<Input
 								id='house_material'
 								placeholder='монолит'

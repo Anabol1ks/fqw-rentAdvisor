@@ -14,7 +14,7 @@ import (
 	"go_back/internal/repository"
 )
 
-func SetupRouter(cfg *config.Config, repo repository.ValuationReportRepository) *gin.Engine {
+func SetupRouter(cfg *config.Config, repo repository.ValuationReportRepository, geocodeHandler *handlers.GeocodeHandler) *gin.Engine {
 	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
@@ -43,6 +43,11 @@ func SetupRouter(cfg *config.Config, repo repository.ValuationReportRepository) 
 			valuation.GET("", valuationHandler.ListValuations)
 			valuation.GET("/:id", valuationHandler.GetValuationByID)
 			valuation.GET("/:id/pdf", valuationHandler.GetValuationPDF)
+		}
+
+		geocode := api.Group("/geocode")
+		{
+			geocode.GET("/suggest", geocodeHandler.SuggestAddress)
 		}
 	}
 
