@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { AddressAutocomplete } from '@/components/address-autocomplete'
 import {
 	Select,
@@ -36,22 +37,51 @@ const CONDITION_OPTIONS = [
 	'дизайнерский',
 ]
 
+// Функции для работы с cookies
+const getCookie = (name: string): string | null => {
+	if (typeof document === 'undefined') return null
+	const value = `; ${document.cookie}`
+	const parts = value.split(`; ${name}=`)
+	if (parts.length === 2) return parts.pop()?.split(';').shift() || null
+	return null
+}
+
+const setCookie = (name: string, value: string, days: number = 365) => {
+	if (typeof document === 'undefined') return
+	const date = new Date()
+	date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000)
+	const expires = `expires=${date.toUTCString()}`
+	document.cookie = `${name}=${value};${expires};path=/`
+}
+
 interface ValuationFormProps {
 	onSuccess?: (response: AddressValuationResponse) => void
 	onLoadingStart?: () => void
-	mlServiceOnline: boolean
 }
 
 export function ValuationForm({
 	onSuccess,
 	onLoadingStart,
-	mlServiceOnline,
 }: ValuationFormProps) {
 	const [loading, setLoading] = useState(false)
+	const [withText, setWithText] = useState(true)
 	const [formData, setFormData] = useState<Partial<AddressValuationRequest>>({
 		city: 'Москва',
-		with_text: mlServiceOnline,
 	})
+
+	// Загружаем состояние with_text из cookies при монтировании
+	useEffect(() => {
+		const savedValue = getCookie('with_text')
+		if (savedValue !== null) {
+			setWithText(savedValue === 'true')
+		}
+	}, [])
+
+	// Сохраняем состояние with_text в cookies при изменении
+	const handleWithTextChange = (checked: boolean) => {
+		setWithText(checked)
+		setCookie('with_text', checked.toString())
+	}
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
@@ -71,7 +101,7 @@ export function ValuationForm({
 			const response = await api.createValuation({
 				...formData,
 				city: formData.city || 'Москва',
-				with_text: mlServiceOnline,
+				with_text: withText,
 			} as AddressValuationRequest)
 
 			toast.success('Оценка успешно создана')
@@ -301,22 +331,38 @@ export function ValuationForm({
 										</SelectItem>
 									))}
 								</SelectContent>
-							</Select>
-						</div>
+						</Select>
 					</div>
+				</div>
 
-					<Button type='submit' className='w-full' disabled={loading}>
-						{loading ? (
-							<>
-								<Loader2 className='mr-2 h-4 w-4 animate-spin' />
-								Обработка...
-							</>
-						) : (
-							'Рассчитать стоимость'
-						)}
-					</Button>
-				</form>
-			</CardContent>
-		</Card>
+				<div className='flex items-center justify-between p-4 rounded-lg border bg-muted/50'>
+					<div className='space-y-0.5'>
+						<Label htmlFor='with_text' className='text-base font-medium cursor-pointer'>
+							Текстовый анализ с AI
+						</Label>
+						<p className='text-sm text-muted-foreground'>
+							Добавить развернутое описание и факторы оценки
+						</p>
+					</div>
+					<Switch
+						id='with_text'
+						checked={withText}
+						onCheckedChange={handleWithTextChange}
+					/>
+				</div>
+
+				<Button type='submit' className='w-full' disabled={loading}>
+					{loading ? (
+						<>
+							<Loader2 className='mr-2 h-4 w-4 animate-spin' />
+							Обработка...
+						</>
+					) : (
+						'Рассчитать стоимость'
+					)}
+				</Button>
+			</form>
+		</CardContent>
+	</Card>
 	)
 }

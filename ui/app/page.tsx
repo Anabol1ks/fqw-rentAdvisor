@@ -15,7 +15,6 @@ import { Toaster } from 'sonner';
 
 export default function Home() {
   const [result, setResult] = useState<AddressValuationResponse | null>(null);
-  const [mlServiceOnline, setMlServiceOnline] = useState(true);
   const [activeTab, setActiveTab] = useState('form');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -104,7 +103,6 @@ export default function Home() {
                   <ValuationForm
                     onSuccess={handleValuationSuccess}
                     onLoadingStart={handleValuationStart}
-                    mlServiceOnline={mlServiceOnline}
                   />
                 )}
                 {isLoading && <AILoading />}
