@@ -82,7 +82,7 @@ export default function Home() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground pt-4">
-                Дипломный проект РТУ МИРЭА | Кафедра информационных технологий
+                Дипломный проект РТУ МИРЭА | Кафедра Вычислительной техники
               </p>
             </section>
 

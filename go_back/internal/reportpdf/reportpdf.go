@@ -72,8 +72,8 @@ func RenderReportPDF(r *mlclient.Report, opts Options) ([]byte, error) {
 	pdf.SetFont("timesnewromanpsmt", "", 11)
 
 	mainText := fmt.Sprintf(
-		"Оценочная ставка долгосрочной аренды: %.0f ₽ в месяц.\n"+
-			"Ожидаемый диапазон: от %.0f до %.0f ₽ в месяц.\n"+
+		"Оценочная ставка долгосрочной аренды: %.0f руб. в месяц.\n"+
+			"Ожидаемый диапазон: от %.0f до %.0f руб. в месяц.\n"+
 			"Валюта: %s, тип сделки: %s.",
 		r.Pricing.PredictionRub,
 		r.Pricing.IntervalLowRub,
@@ -173,7 +173,7 @@ func RenderReportPDF(r *mlclient.Report, opts Options) ([]byte, error) {
 
 		// Заголовок таблицы
 		pdf.SetFillColor(230, 230, 230)
-		pdf.CellFormat(45, 7, "Цена, ₽", "1", 0, "C", true, 0, "")
+		pdf.CellFormat(45, 7, "Цена, руб.", "1", 0, "C", true, 0, "")
 		pdf.CellFormat(20, 7, "Комнат", "1", 0, "C", true, 0, "")
 		pdf.CellFormat(30, 7, "Площадь, м²", "1", 0, "C", true, 0, "")
 		pdf.CellFormat(35, 7, "Расстояние, км", "1", 0, "C", true, 0, "")
@@ -246,7 +246,7 @@ func RenderReportPDF(r *mlclient.Report, opts Options) ([]byte, error) {
 
 	if r.ModelInfo.ValidMAE != nil && r.ModelInfo.ValidRMSE != nil {
 		pdf.CellFormat(190, 6,
-			fmt.Sprintf("Качество на валидации: MAE=%.0f ₽, RMSE=%.0f ₽",
+			fmt.Sprintf("Качество на валидации: MAE=%.0f руб., RMSE=%.0f руб.",
 				*r.ModelInfo.ValidMAE, *r.ModelInfo.ValidRMSE),
 			"", 1, "", false, 0, "")
 	}
