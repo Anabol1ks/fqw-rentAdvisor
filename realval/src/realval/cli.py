@@ -480,6 +480,51 @@ def _density_500m(engine, lat: float, lon: float, days_back: int = 90) -> Option
 # ---------- Commands ----------
 
 @retry(wait=wait_fixed(1), stop=stop_after_attempt(3))
+def _yandex_geocode(address: str, city: str = "Москва") -> Optional[Tuple[float, float]]:
+    """
+    Геокодирование через Yandex Geocoder API.
+    """
+    api_key = os.environ.get("YANDEX_GEO_API_KEY")
+    if not api_key:
+        return None
+    
+    headers = {
+        "User-Agent": "realval/0.1 (+grigorogannisyan.12@gmail.com)",
+    }
+    url = "https://geocode-maps.yandex.ru/1.x/"
+    
+    # Формируем полный адрес
+    query = f"{city}, {address}" if city and city.lower() not in address.lower() else address
+    
+    params = {
+        "apikey": api_key,
+        "geocode": query,
+        "format": "json",
+        "results": 1,
+    }
+    
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        
+        members = data.get("response", {}).get("GeoObjectCollection", {}).get("featureMember", [])
+        if not members:
+            return None
+        
+        geo_object = members[0].get("GeoObject", {})
+        point = geo_object.get("Point", {}).get("pos", "")
+        
+        if point:
+            # Yandex возвращает "lon lat", нам нужно "lat lon"
+            lon_str, lat_str = point.split()
+            return float(lat_str), float(lon_str)
+    except Exception:
+        pass
+    
+    return None
+
+@retry(wait=wait_fixed(1), stop=stop_after_attempt(3))
 def _nominatim_geocode(address: str, city: str = "Москва") -> Optional[Tuple[float, float]]:
     """
     Геокодирование с приоритизацией нужного города.
@@ -856,6 +901,14 @@ def _rmse(y_true, y_pred) -> float:
         except TypeError:
             return float(mean_squared_error(y_true, y_pred) ** 0.5)
 
+def _mape(y_true, y_pred) -> float:
+    """Mean Absolute Percentage Error."""
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    # Избегаем деления на ноль
+    mask = y_true != 0
+    return float(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100)
+
 import uuid
 from datetime import datetime, timezone
 
@@ -1182,6 +1235,7 @@ def train_fit(
 
     mae = mean_absolute_error(y_va_raw, pred_va)
     rmse = _rmse(y_va_raw, pred_va)
+    mape = _mape(y_va_raw, pred_va)
 
     artefact = {
         "preprocessor": preproc,
@@ -1192,7 +1246,7 @@ def train_fit(
         "target": target,
         "numeric_features": num_cols,
         "categorical_features": cat_cols,
-        "metrics": {"valid_mae": float(mae), "valid_rmse": float(rmse)},
+        "metrics": {"valid_mae": float(mae), "valid_rmse": float(rmse), "valid_mape": float(mape)},
         "conformal_eps_log": eps_conf,
         "use_local_stats": use_local_stats,
         "local_stats": grp if use_local_stats else None,
@@ -1202,7 +1256,7 @@ def train_fit(
 
     model_out.parent.mkdir(parents=True, exist_ok=True)
     dump(artefact, model_out)
-    typer.echo(f"[train] saved {model_out} | valid MAE={mae:.2f}, RMSE={rmse:.2f}")
+    typer.echo(f"[train] saved {model_out} | valid MAE={mae:.2f}, RMSE={rmse:.2f}, MAPE={mape:.2f}%")
 
 @app.command("predict-one")
 def predict_one(
@@ -1509,9 +1563,13 @@ def predict_address(
             if cached:
                 lat, lon = cached
 
-        # 1.2 Если промах кэша — Nominatim
+        # 1.2 Если промах кэша — пробуем геокодеры
         if lat is None or lon is None:
-            coords = _nominatim_geocode(address, city=city)
+            # Сначала пробуем Yandex (более надёжный для РФ)
+            coords = _yandex_geocode(address, city=city)
+            # Если Yandex не сработал — пробуем Nominatim
+            if not coords:
+                coords = _nominatim_geocode(address, city=city)
             if not coords:
                 raise typer.BadParameter("Адрес не найден геокодером. Попробуй уточнить формулировку.")
             lat, lon = coords
@@ -1719,6 +1777,7 @@ def predict_address(
         "log_target": artefact.get("log_target", False),
         "valid_mae": model_metrics.get("valid_mae"),
         "valid_rmse": model_metrics.get("valid_rmse"),
+        "valid_mape": model_metrics.get("valid_mape"),
     }
 
     report = {
