@@ -31,8 +31,17 @@ export default function Home() {
   return (
     <>
       <Toaster position="top-right" />
-      <div className="min-h-screen bg-background">
-        <header className="border-b">
+      <div className="min-h-screen bg-background relative">
+        {/* Dotted background pattern */}
+        <div
+          className="absolute inset-0 -z-10 opacity-100"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle, rgba(0, 0, 0, 0.12) 1px, transparent 1px)',
+            backgroundSize: '20px 20px',
+          }}
+        />
+        <header className="border-b relative z-10">
           <div className="container mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -49,7 +58,7 @@ export default function Home() {
           </div>
         </header>
 
-        <main className="container mx-auto px-4 py-8">
+        <main className="container mx-auto px-4 py-8 relative z-10">
           <div className="max-w-6xl mx-auto space-y-8">
             <section className="text-center space-y-4">
               <h2 className="text-3xl font-bold tracking-tight">

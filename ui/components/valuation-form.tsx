@@ -143,7 +143,7 @@ export function ValuationForm({
 								id='address'
 								placeholder='Нежинская улица, 1к1'
 								value={formData.address || ''}
-								onChange={(value) => updateField('address', value)}
+								onChange={value => updateField('address', value)}
 								onSelect={handleAddressSelect}
 								required
 							/>
@@ -155,7 +155,8 @@ export function ValuationForm({
 								id='city'
 								placeholder='Москва'
 								value={formData.city || 'Москва'}
-								onChange={e => updateField('city', e.target.value)}
+								readOnly
+								className='bg-muted/50 cursor-not-allowed'
 								required
 							/>
 						</div>
@@ -258,7 +259,7 @@ export function ValuationForm({
 						</div>
 
 						<div className='space-y-2'>
-						<Label htmlFor='floors_total'>Этажей в доме</Label>
+							<Label htmlFor='floors_total'>Этажей в доме</Label>
 							<Input
 								id='floors_total'
 								type='number'
@@ -279,8 +280,8 @@ export function ValuationForm({
 							/>
 						</div>
 
-					<div className='space-y-2'>
-						<Label htmlFor='year_built'>Год постройки</Label>
+						<div className='space-y-2'>
+							<Label htmlFor='year_built'>Год постройки</Label>
 							<Input
 								id='year_built'
 								type='number'
@@ -300,8 +301,8 @@ export function ValuationForm({
 							/>
 						</div>
 
-					<div className='space-y-2'>
-						<Label htmlFor='house_material'>Материал дома</Label>
+						<div className='space-y-2'>
+							<Label htmlFor='house_material'>Материал дома</Label>
 							<Input
 								id='house_material'
 								placeholder='монолит'
@@ -331,38 +332,41 @@ export function ValuationForm({
 										</SelectItem>
 									))}
 								</SelectContent>
-						</Select>
+							</Select>
+						</div>
 					</div>
-				</div>
 
-				<div className='flex items-center justify-between p-4 rounded-lg border bg-muted/50'>
-					<div className='space-y-0.5'>
-						<Label htmlFor='with_text' className='text-base font-medium cursor-pointer'>
-							Текстовый анализ с AI
-						</Label>
-						<p className='text-sm text-muted-foreground'>
-							Добавить развернутое описание и факторы оценки
-						</p>
+					<div className='flex items-center justify-between p-4 rounded-lg border bg-muted/50'>
+						<div className='space-y-0.5'>
+							<Label
+								htmlFor='with_text'
+								className='text-base font-medium cursor-pointer'
+							>
+								Текстовый анализ с AI
+							</Label>
+							<p className='text-sm text-muted-foreground'>
+								Добавить развернутое описание и факторы оценки
+							</p>
+						</div>
+						<Switch
+							id='with_text'
+							checked={withText}
+							onCheckedChange={handleWithTextChange}
+						/>
 					</div>
-					<Switch
-						id='with_text'
-						checked={withText}
-						onCheckedChange={handleWithTextChange}
-					/>
-				</div>
 
-				<Button type='submit' className='w-full' disabled={loading}>
-					{loading ? (
-						<>
-							<Loader2 className='mr-2 h-4 w-4 animate-spin' />
-							Обработка...
-						</>
-					) : (
-						'Рассчитать стоимость'
-					)}
-				</Button>
-			</form>
-		</CardContent>
-	</Card>
+					<Button type='submit' className='w-full' disabled={loading}>
+						{loading ? (
+							<>
+								<Loader2 className='mr-2 h-4 w-4 animate-spin' />
+								Обработка...
+							</>
+						) : (
+							'Рассчитать стоимость'
+						)}
+					</Button>
+				</form>
+			</CardContent>
+		</Card>
 	)
 }
