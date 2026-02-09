@@ -4,11 +4,11 @@ CITY = Москва
 
 # Скрапинг аренды в Москве (resilient режим, рекомендуется)
 scrape:
-	pwsh -NoProfile -Command "Set-Location -LiteralPath 'c:\Users\grigo\Documents\GitGrisha\fqw-rentAdvisor\сырой скрайп'; go run ./cmd/scrape_yandex --city=moskva --start=1 --pages=100 --max-empty-pages=2 --parallel=4 --delay-min=1200ms --delay-max=2000ms --deal=rent --max-items=1000 --use-referer=true --captcha-cooldown=2m --max-retries=3 | Out-String -Width 200"
+	pwsh -NoProfile -Command "Set-Location -LiteralPath 'c:\Users\grigo\Documents\GitGrisha\fqw-rentAdvisor\scrap'; go run ./cmd/scrape_yandex --city=moskva --start=1 --pages=2 --max-empty-pages=2 --parallel=4 --delay-min=1200ms --delay-max=2000ms --deal=rent --max-items=1000 --use-referer=true --captcha-cooldown=2m --max-retries=3 | Out-String -Width 200"
 
 # Скрапинг продажи в Москве
 scrape-sale:
-	pwsh -NoProfile -Command "Set-Location -LiteralPath 'c:\Users\grigo\Documents\GitGrisha\fqw-rentAdvisor\сырой скрайп'; go run ./cmd/scrape_yandex --city=moskva --start=1 --pages=30 --max-empty-pages=2 --parallel=2 --delay-min=1200ms --delay-max=2000ms --deal=sale --max-items=500 --use-referer=true --captcha-cooldown=2m --max-retries=3 | Out-String -Width 200"
+	pwsh -NoProfile -Command "Set-Location -LiteralPath 'c:\Users\grigo\Documents\GitGrisha\fqw-rentAdvisor\scrap'; go run ./cmd/scrape_yandex --city=moskva --start=1 --pages=30 --max-empty-pages=2 --parallel=2 --delay-min=1200ms --delay-max=2000ms --deal=sale --max-items=500 --use-referer=true --captcha-cooldown=2m --max-retries=3 | Out-String -Width 200"
 
 
 norm:

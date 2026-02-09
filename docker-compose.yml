@@ -5,7 +5,7 @@ services:
       POSTGRES_USER: anabol1ks
       POSTGRES_PASSWORD: 12341
       POSTGRES_DB: realty
-    ports: ["5432:5432"]
+    ports: ["5444:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
 

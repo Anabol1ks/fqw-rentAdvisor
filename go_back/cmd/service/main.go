@@ -70,7 +70,7 @@ func main() {
 	// Создаем geocode handler
 	geocodeHandler := handlers.NewGeocodeHandler(geocoderClient, redisClient)
 
-	r := httpapi.SetupRouter(cfg, repo, geocodeHandler)
+	r := httpapi.SetupRouter(cfg, repo, geocodeHandler, db, log)
 	port := ":" + cfg.Port
 	if err := r.Run(port); err != nil {
 		log.Fatal("failed to run http server", zap.Error(err))

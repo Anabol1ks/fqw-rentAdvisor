@@ -17,6 +17,11 @@ type Config struct {
 	RedisPassword    string
 	RedisDB          int
 	RedisCachePrefix string
+	// Admin panel
+	AdminKey    string
+	ProjectRoot string
+	ScrapDir    string
+	RealvalDir  string
 }
 
 func Load(log *zap.Logger) *Config {
@@ -38,6 +43,8 @@ func Load(log *zap.Logger) *Config {
 		redisDB = 0
 	}
 
+	projectRoot := getEnv("PROJECT_ROOT", "..", log)
+
 	return &Config{
 		Port:             getEnv("PORT", "8080", log),
 		MLServiceURL:     getEnv("ML_SERVICE_URL", "http://localhost:8000", log),
@@ -48,6 +55,10 @@ func Load(log *zap.Logger) *Config {
 		RedisPassword:    getEnv("REDIS_PASSWORD", "", log),
 		RedisDB:          redisDB,
 		RedisCachePrefix: getEnv("REDIS_CACHE_PREFIX", "rentadvisor:", log),
+		AdminKey:         getEnv("ADMIN_KEY", "", log),
+		ProjectRoot:      projectRoot,
+		ScrapDir:         getEnv("SCRAP_DIR", projectRoot+"/scrap", log),
+		RealvalDir:       getEnv("REALVAL_DIR", projectRoot+"/realval", log),
 	}
 }
 
