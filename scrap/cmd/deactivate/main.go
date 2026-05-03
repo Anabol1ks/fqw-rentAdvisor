@@ -25,9 +25,9 @@ func main() {
 	db := storage.ConnectDB(&cfg.DB, log)
 	sql := []string{
 		`UPDATE listing SET is_active=false
-		  WHERE deal_type='rent_long' AND is_active AND last_seen < now()-interval '90 days'`,
+		  WHERE deal_type='rent_long' AND is_active AND last_seen < now()-interval '250 days'`,
 		`UPDATE listing SET is_active=false
-		  WHERE deal_type='sale' AND is_active AND last_seen < now()-interval '150 days'`,
+		  WHERE deal_type='sale' AND is_active AND last_seen < now()-interval '300 days'`,
 	}
 	for _, q := range sql {
 		if err := db.Exec(q).Error; err != nil {

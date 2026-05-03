@@ -32,7 +32,7 @@ split:
 		--train-out data/splits/train.parquet \
 		--valid-out data/splits/valid.parquet \
 		--time-col first_seen \
-		--valid-days 15 \
+		--valid-days 200 \
 		--valid-ratio 0.3
 
 train:
