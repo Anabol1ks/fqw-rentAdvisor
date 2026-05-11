@@ -143,7 +143,7 @@ export default function Home() {
         <footer className="border-t mt-16">
           <div className="container mx-auto px-4 py-6">
             <p className="text-center text-sm text-muted-foreground">
-              © 2025 RentAdvisor | РТУ МИРЭА | Все права защищены
+              © 2026 RentAdvisor | РТУ МИРЭА | Все права защищены
             </p>
           </div>
         </footer>
